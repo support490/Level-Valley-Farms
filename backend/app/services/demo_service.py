@@ -5,7 +5,7 @@ from sqlalchemy import select, func
 from decimal import Decimal
 
 from app.models.farm import Grower, Barn, BarnType, FlockPlacement
-from app.models.flock import Flock, FlockStatus, MortalityRecord, ProductionRecord
+from app.models.flock import Flock, FlockStatus, FlockType, BirdColor, SourceType, MortalityRecord, ProductionRecord, FlockSource
 from app.models.inventory import EggInventory, EggSale, EggGrade
 from app.models.contracts import EggContract, ContractFlockAssignment
 from app.models.logistics import PickupJob, PickupItem, PickupStatus, Shipment, ShipmentLine, ShipmentStatus
@@ -40,24 +40,51 @@ async def seed_demo_data(db: AsyncSession):
     await db.flush()
 
     # ── Flocks ──
-    f1 = Flock(flock_number="LVF-2025-001", breed="Lohmann Brown", hatch_date="2025-01-15",
-               arrival_date="2025-01-17", initial_bird_count=22000, current_bird_count=21840)
-    f2 = Flock(flock_number="LVF-2025-002", breed="Hy-Line W-36", hatch_date="2025-02-10",
-               arrival_date="2025-02-12", initial_bird_count=45000, current_bird_count=44720)
-    f3 = Flock(flock_number="LVF-2025-003", breed="Lohmann LSL-Classic", hatch_date="2025-04-01",
-               arrival_date="2025-04-03", initial_bird_count=38000, current_bird_count=37850)
-    f4 = Flock(flock_number="LVF-2025-004", breed="Lohmann Brown", hatch_date="2025-06-20",
+    # Pullet flock at Miller's pullet barn (active, some birds will be split to layers)
+    f1_pullet = Flock(flock_number="BPjm011525", flock_type=FlockType.PULLET, bird_color=BirdColor.BROWN,
+                      source_type=SourceType.HATCHED, breed="Lohmann Brown", hatch_date="2025-01-15",
+                      arrival_date="2025-01-17", initial_bird_count=22000, current_bird_count=0,
+                      status=FlockStatus.SOLD, sold_date="2025-05-01",
+                      cost_per_bird=Decimal("6.7443"))
+
+    # Layer flocks (created from pullet splits)
+    f1 = Flock(flock_number="BLjm011525", flock_type=FlockType.LAYER, bird_color=BirdColor.BROWN,
+               source_type=SourceType.SPLIT, breed="Lohmann Brown", hatch_date="2025-01-15",
+               arrival_date="2025-05-01", initial_bird_count=21840, current_bird_count=21840,
+               cost_per_bird=Decimal("6.7443"), parent_flock_id=None)  # will set after flush
+    f2 = Flock(flock_number="WLjm021025", flock_type=FlockType.LAYER, bird_color=BirdColor.WHITE,
+               source_type=SourceType.SPLIT, breed="Hy-Line W-36", hatch_date="2025-02-10",
+               arrival_date="2025-02-12", initial_bird_count=45000, current_bird_count=44720,
+               cost_per_bird=Decimal("4.8889"))
+    f3 = Flock(flock_number="WLsw040125", flock_type=FlockType.LAYER, bird_color=BirdColor.WHITE,
+               source_type=SourceType.SPLIT, breed="Lohmann LSL-Classic", hatch_date="2025-04-01",
+               arrival_date="2025-04-03", initial_bird_count=38000, current_bird_count=37850,
+               cost_per_bird=Decimal("4.6053"))
+    f4 = Flock(flock_number="BPsw062025", flock_type=FlockType.PULLET, bird_color=BirdColor.BROWN,
+               source_type=SourceType.HATCHED, breed="Lohmann Brown", hatch_date="2025-06-20",
                arrival_date="2025-06-22", initial_bird_count=18000, current_bird_count=17900)
-    f5 = Flock(flock_number="LVF-2024-010", breed="Hy-Line W-36",
+    f5 = Flock(flock_number="WLas081524", flock_type=FlockType.LAYER, bird_color=BirdColor.WHITE,
+               source_type=SourceType.PURCHASED, breed="Hy-Line W-36",
                arrival_date="2024-08-15", initial_bird_count=40000, current_bird_count=0,
-               status=FlockStatus.SOLD, sold_date="2025-10-01")
-    db.add_all([f1, f2, f3, f4, f5])
+               status=FlockStatus.SOLD, sold_date="2025-10-01", cost_per_bird=Decimal("5.5000"))
+    db.add_all([f1_pullet, f1, f2, f3, f4, f5])
     await db.flush()
 
+    # Set parent flock reference now that we have IDs
+    f1.parent_flock_id = f1_pullet.id
+
+    # ── Flock Sources (merge tracking) ──
+    fs1 = FlockSource(layer_flock_id=f1.id, pullet_flock_id=f1_pullet.id,
+                      bird_count=21840, cost_per_bird=Decimal("6.7443"),
+                      transfer_date="2025-05-01")
+    db.add(fs1)
+
     # ── Placements ──
-    # f1 started in pullet barn, transferred to layer
-    p1a = FlockPlacement(flock_id=f1.id, barn_id=b1.id, bird_count=22000,
-                         placed_date="2025-01-17", removed_date="2025-05-01", is_current=False)
+    # f1_pullet was in pullet barn, now retired
+    p0 = FlockPlacement(flock_id=f1_pullet.id, barn_id=b1.id, bird_count=22000,
+                        placed_date="2025-01-17", removed_date="2025-05-01", is_current=False)
+
+    # f1 layer flock placed from split
     p1b = FlockPlacement(flock_id=f1.id, barn_id=b2.id, bird_count=21840,
                          placed_date="2025-05-01", is_current=True)
     b2.current_bird_count = 21840
@@ -76,7 +103,7 @@ async def seed_demo_data(db: AsyncSession):
 
     p5 = FlockPlacement(flock_id=f5.id, barn_id=b6.id, bird_count=40000,
                         placed_date="2024-08-15", removed_date="2025-10-01", is_current=False)
-    db.add_all([p1a, p1b, p2, p3, p4, p5])
+    db.add_all([p0, p1b, p2, p3, p4, p5])
 
     # ── Mortality Records ──
     mortalities = [

@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Optional
 
 from app.models.accounting import Account, AccountType, JournalEntry, JournalLine, ExpenseCategory
-from app.models.flock import Flock, FlockStatus, MortalityRecord, ProductionRecord
+from app.models.flock import Flock, FlockStatus, FlockType, MortalityRecord, ProductionRecord, FlockSource
 from app.models.farm import FlockPlacement, Barn, Grower
 from app.models.inventory import EggSale
 from app.models.contracts import EggContract, ContractFlockAssignment
@@ -180,13 +180,32 @@ async def get_flock_report(db: AsyncSession, flock_id: str):
                 "shipped_dozens": shipped_dozens,
             })
 
+    # Flock sources (for layer flocks that came from pullet splits)
+    flock_sources_list = []
+    if flock.flock_type == FlockType.LAYER:
+        sources_result = await db.execute(
+            select(FlockSource).where(FlockSource.layer_flock_id == flock_id)
+        )
+        for src in sources_result.scalars().all():
+            pullet = await db.get(Flock, src.pullet_flock_id)
+            flock_sources_list.append({
+                "pullet_flock_number": pullet.flock_number if pullet else "",
+                "bird_count": src.bird_count,
+                "cost_per_bird": float(src.cost_per_bird),
+                "transfer_date": src.transfer_date,
+            })
+
     return {
         "flock_id": flock_id,
         "flock_number": flock.flock_number,
+        "flock_type": flock.flock_type.value if hasattr(flock.flock_type, 'value') else flock.flock_type,
+        "bird_color": flock.bird_color.value if hasattr(flock.bird_color, 'value') else flock.bird_color,
+        "source_type": flock.source_type.value if hasattr(flock.source_type, 'value') else flock.source_type,
         "breed": flock.breed,
         "status": flock.status.value if hasattr(flock.status, 'value') else flock.status,
         "arrival_date": flock.arrival_date,
         "sold_date": flock.sold_date,
+        "cost_per_bird": float(flock.cost_per_bird) if flock.cost_per_bird else 0,
         "initial_bird_count": flock.initial_bird_count,
         "current_bird_count": flock.current_bird_count,
         "total_deaths": total_deaths,
@@ -208,6 +227,7 @@ async def get_flock_report(db: AsyncSession, flock_id: str):
         "production_summary": production_summary,
         "placement_history": placements,
         "contracts": contracts_list,
+        "flock_sources": flock_sources_list,
     }
 
 

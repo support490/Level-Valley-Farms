@@ -1,9 +1,9 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/layout/Layout'
 import Dashboard from './pages/Dashboard'
 import Growers from './pages/Growers'
-import Barns from './pages/Barns'
 import Flocks from './pages/Flocks'
+import FlockDetail from './pages/FlockDetail'
 import Accounting from './pages/Accounting'
 import Production from './pages/Production'
 import Inventory from './pages/Inventory'
@@ -20,8 +20,9 @@ export default function App() {
           <Route path="/" element={<Layout />}>
             <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
             <Route path="growers" element={<ErrorBoundary><Growers /></ErrorBoundary>} />
-            <Route path="barns" element={<ErrorBoundary><Barns /></ErrorBoundary>} />
+            <Route path="barns" element={<Navigate to="/growers" replace />} />
             <Route path="flocks" element={<ErrorBoundary><Flocks /></ErrorBoundary>} />
+            <Route path="flocks/:flockId" element={<ErrorBoundary><FlockDetail /></ErrorBoundary>} />
             <Route path="production" element={<ErrorBoundary><Production /></ErrorBoundary>} />
             <Route path="accounting" element={<ErrorBoundary><Accounting /></ErrorBoundary>} />
             <Route path="inventory" element={<ErrorBoundary><Inventory /></ErrorBoundary>} />

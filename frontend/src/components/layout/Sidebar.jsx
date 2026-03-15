@@ -6,8 +6,7 @@ import {
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/growers', icon: Building2, label: 'Growers' },
-  { to: '/barns', icon: Warehouse, label: 'Barns' },
+  { to: '/growers', icon: Building2, label: 'Farm Management' },
   { to: '/flocks', icon: Bird, label: 'Flocks' },
   { to: '/production', icon: TrendingUp, label: 'Production' },
   { to: '/accounting', icon: Receipt, label: 'Accounting' },

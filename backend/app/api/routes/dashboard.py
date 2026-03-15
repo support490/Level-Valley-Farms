@@ -14,16 +14,16 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/stats")
 async def dashboard_stats(db: AsyncSession = Depends(get_db)):
-    # Active flocks
+    # Active flocks (including closing status)
     flock_result = await db.execute(
-        select(func.count(Flock.id)).where(Flock.status == FlockStatus.ACTIVE)
+        select(func.count(Flock.id)).where(Flock.status.in_([FlockStatus.ACTIVE, FlockStatus.CLOSING]))
     )
     active_flocks = flock_result.scalar() or 0
 
     # Total birds
     bird_result = await db.execute(
         select(func.coalesce(func.sum(Flock.current_bird_count), 0))
-        .where(Flock.status == FlockStatus.ACTIVE)
+        .where(Flock.status.in_([FlockStatus.ACTIVE, FlockStatus.CLOSING]))
     )
     total_birds = int(bird_result.scalar() or 0)
 

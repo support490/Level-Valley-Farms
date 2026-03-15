@@ -10,6 +10,14 @@ export const updateFlock = (id, data) => api.put(`/flocks/${id}`, data)
 export const transferFlock = (id, data) => api.post(`/flocks/${id}/transfer`, data)
 export const getFlockPlacements = (id) => api.get(`/flocks/${id}/placements`)
 
+export const splitFlock = (id, data) => api.post(`/flocks/${id}/split`, data)
+export const sellPullets = (id, data) => api.post(`/flocks/${id}/sell-pullets`, data)
+export const purchaseOutside = (data) => api.post('/flocks/purchase-outside', data)
+
+export const initiateCloseout = (id, data) => api.post(`/flocks/${id}/closeout`, data)
+export const getCloseoutStatus = (id) => api.get(`/flocks/${id}/closeout-status`)
+export const updateCloseoutInventory = (id, params) => api.put(`/flocks/${id}/closeout-inventory`, null, { params })
+
 export const recordMortality = (data) => api.post('/flocks/mortality', data)
 export const getMortalityRecords = (flockId = null) =>
   api.get('/flocks/mortality/records', { params: flockId ? { flock_id: flockId } : {} })

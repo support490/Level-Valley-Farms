@@ -55,3 +55,37 @@ class ProductionDataPoint(BaseModel):
     production_pct: float
     egg_count: int
     bird_count: int
+
+
+class BulkProductionEntry(BaseModel):
+    flock_id: str = Field(..., min_length=1)
+    bird_count: int = Field(..., gt=0)
+    egg_count: int = Field(..., ge=0)
+    cracked: int = Field(0, ge=0)
+    floor_eggs: int = Field(0, ge=0)
+    notes: Optional[str] = None
+
+
+class BulkProductionCreate(BaseModel):
+    record_date: str
+    entries: List[BulkProductionEntry]
+
+    @field_validator("record_date")
+    @classmethod
+    def validate_record_date(cls, v):
+        try:
+            date.fromisoformat(v)
+        except (ValueError, TypeError):
+            raise ValueError("record_date must be a valid date in YYYY-MM-DD format")
+        return v
+
+
+class ProductionAlert(BaseModel):
+    flock_id: str
+    flock_number: str
+    alert_type: str
+    severity: str
+    message: str
+    current_value: float
+    previous_value: Optional[float] = None
+    threshold: Optional[float] = None
