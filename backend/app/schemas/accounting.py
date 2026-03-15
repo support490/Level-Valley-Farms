@@ -211,3 +211,99 @@ class AccountLedgerEntry(BaseModel):
     running_balance: float
     journal_entry_id: str
     flock_number: Optional[str] = None
+
+
+class RecurringEntryCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(..., min_length=1, max_length=500)
+    frequency: str
+    amount: float = Field(..., gt=0)
+    expense_account_id: str = Field(..., min_length=1)
+    payment_account_id: str = Field(..., min_length=1)
+    flock_id: Optional[str] = None
+    expense_category: Optional[str] = None
+    start_date: str
+    end_date: Optional[str] = None
+    auto_post: bool = False
+    notes: Optional[str] = None
+
+    @field_validator("frequency")
+    @classmethod
+    def validate_frequency(cls, v):
+        valid = ("weekly", "biweekly", "monthly", "quarterly", "annually")
+        if v not in valid:
+            raise ValueError(f"frequency must be one of: {', '.join(valid)}")
+        return v
+
+    @field_validator("start_date")
+    @classmethod
+    def validate_start_date(cls, v):
+        return _validate_date_str(v, "start_date")
+
+    @field_validator("end_date")
+    @classmethod
+    def validate_end_date(cls, v):
+        if v:
+            return _validate_date_str(v, "end_date")
+        return v
+
+
+class RecurringEntryUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    amount: Optional[float] = None
+    flock_id: Optional[str] = None
+    end_date: Optional[str] = None
+    is_active: Optional[bool] = None
+    auto_post: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class RecurringEntryResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    frequency: str
+    amount: float
+    expense_account_id: str
+    expense_account_name: str = ""
+    payment_account_id: str
+    payment_account_name: str = ""
+    flock_id: Optional[str]
+    flock_number: Optional[str] = None
+    expense_category: Optional[str]
+    start_date: str
+    end_date: Optional[str]
+    last_generated_date: Optional[str]
+    next_due_date: Optional[str]
+    is_active: bool
+    auto_post: bool
+    notes: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class FiscalPeriodCreate(BaseModel):
+    period_name: str = Field(..., min_length=1, max_length=50)
+    start_date: str
+    end_date: str
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def validate_dates(cls, v):
+        return _validate_date_str(v, "date")
+
+
+class FiscalPeriodResponse(BaseModel):
+    id: str
+    period_name: str
+    start_date: str
+    end_date: str
+    is_closed: bool
+    closed_date: Optional[str]
+    closed_by: Optional[str]
+    notes: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

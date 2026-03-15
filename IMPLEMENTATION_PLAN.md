@@ -7,258 +7,145 @@ Full-featured SAGE 50-level double-entry accounting system for Level Valley Farm
 
 ---
 
-## PHASE 1: Core Data Management (Growers, Barns, Flocks)
+## PHASE 1: Core Data Management (Growers, Barns, Flocks) — COMPLETE
 *Foundation layer — CRUD operations for all farm entities*
 
 ### Backend
-- [ ] **Grower CRUD API** (`/api/growers`) — create, read, update, soft-delete grower farms with name, location, contact info
-- [ ] **Barn CRUD API** (`/api/barns`) — create, read, update, soft-delete barns; set barn type (pullet/layer), bird capacity; link to grower
-- [ ] **Flock CRUD API** (`/api/flocks`) — create flocks with auto-generated flock ID number, breed, hatch date, arrival date, initial bird count
-- [ ] **Flock Placement API** (`/api/flocks/{id}/place`) — place a flock in a barn, updating barn bird counts
-- [ ] **Bird Transfer API** (`/api/flocks/{id}/transfer`) — transfer birds from one barn to another (pullet → layer or barn → barn); update counts, create placement records, carry over flock ID
-- [ ] **Mortality/Cull API** (`/api/flocks/{id}/mortality`) — record daily deaths & culls with cause; auto-decrement bird counts
-- [ ] Pydantic schemas for all request/response models
-- [ ] Service layer with business logic validation (capacity checks, transfer rules)
-- [ ] Seed data script for default chart of accounts
+- [x] **Grower CRUD API** (`/api/growers`) — create, read, update, soft-delete grower farms with name, location, contact info
+- [x] **Barn CRUD API** (`/api/barns`) — create, read, update, soft-delete barns; set barn type (pullet/layer), bird capacity; link to grower
+- [x] **Flock CRUD API** (`/api/flocks`) — create flocks with auto-generated flock ID, breed, hatch date, arrival date, initial bird count
+- [x] **Flock Placement API** (`/api/flocks/{id}/place`) — place a flock in a barn, updating barn bird counts
+- [x] **Bird Transfer API** (`/api/flocks/{id}/transfer`) — transfer birds within same barn type; update counts, create placement records
+- [x] **Flock Split API** (`/api/flocks/{id}/split`) — split birds from pullet to layer barn with cost-per-bird inheritance
+- [x] **Pullet Sale API** (`/api/flocks/{id}/sell-pullets`) — sell pullets with price-per-bird revenue tracking
+- [x] **Outside Purchase API** (`/api/flocks/purchase-outside`) — buy pullets directly into layer barn
+- [x] **Flock Closeout API** (`/api/flocks/{id}/closeout`) — initiate closeout with remaining inventory tracking
+- [x] **Mortality/Cull API** (`/api/flocks/mortality`) — record deaths & culls with cause; auto-decrement bird counts
+- [x] Pydantic schemas for all request/response models
+- [x] Service layer with business logic validation (capacity checks, transfer rules, split/merge logic)
+- [x] Seed data script for demo data and default chart of accounts
+- [x] FlockSource model for tracking pullet-to-layer merge lineage
 
 ### Frontend
-- [ ] **Growers page** — list view with search, add/edit/delete modals, location display
-- [ ] **Barns page** — list by grower, capacity bar visualization, add/edit/delete, filter by type (pullet/layer)
-- [ ] **Flocks page** — list with status badges, flock detail view showing current barn, bird count, mortality history
-- [ ] **Transfer wizard** — step-by-step flow: select flock → select source barn → select destination barn → confirm bird count → execute
-- [ ] **Mortality entry form** — date, flock (SearchSelect), deaths, culls, cause
-- [ ] All entity selectors use `SearchSelect` component (react-select with glass theme)
-
-### Deliverables
-- All grower/barn/flock data can be created, viewed, edited, deleted
-- Birds can be transferred between barns with full audit trail
-- Flock ID persists across all transfers
-- Mortality tracking reduces bird counts automatically
+- [x] **Farm Management page** — combined growers + barns with expandable cards showing barns inline
+- [x] **Flocks page** — list with type/status badges, cost-per-bird column, type and status filters
+- [x] **Flock Detail page** (`/flocks/:id`) — 6-tab view: Overview, Production, Mortality, Financials, Lineage, Placements
+- [x] **Split wizard** — select pullet flock → destination layer barn → bird count → auto-generates layer flock ID
+- [x] **Sell Pullets modal** — bird count, price per bird, buyer, total calculation
+- [x] **Buy Outside Pullets modal** — direct to layer barn with cost-per-bird
+- [x] **Closeout modal** — remaining skids/cases, closeout date
+- [x] **Transfer modal** — source barn → destination barn (same type only)
+- [x] **Mortality entry form** — date, flock, deaths, culls, cause
+- [x] All entity selectors use `SearchSelect` component (react-select with glass theme)
 
 ---
 
-## PHASE 2: Double-Entry Accounting Engine
+## PHASE 2: Double-Entry Accounting Engine — COMPLETE
 *SAGE 50-level financial system with chart of accounts and journal entries*
 
 ### Backend
-- [ ] **Chart of Accounts API** (`/api/accounts`) — full hierarchical chart of accounts (assets, liabilities, equity, revenue, expenses)
-- [ ] **Default accounts seeder** — pre-populate standard poultry farm accounts:
-  - Assets: Cash, Accounts Receivable, Egg Inventory, Bird Inventory
-  - Liabilities: Accounts Payable, Grower Payables
-  - Equity: Owner's Equity, Retained Earnings
-  - Revenue: Egg Sales, Bird Sales
-  - Expenses: Feed, Grower Payments, Veterinary/Service, Chick Purchases, Transport, Utilities
-- [ ] **Journal Entry API** (`/api/journal-entries`) — create balanced journal entries (debits = credits validation), assign to flock ID, categorize by expense type
-- [ ] **Journal posting** — post/unpost entries, update account balances
-- [ ] **Expense Quick-Entry API** (`/api/expenses`) — simplified expense entry that auto-creates the journal entry behind the scenes:
-  - Select expense category (feed, grower payment, flock cost, vet/service)
-  - Select flock ID (SearchSelect)
-  - Enter amount, date, description, reference #
-  - System creates proper debit/credit journal entry
-- [ ] **Trial Balance API** — generate trial balance at any date
-- [ ] **Account balance queries** — running balances, period summaries
-- [ ] Transaction validation: ensure debits = credits on every entry
+- [x] **Chart of Accounts API** (`/api/accounts`) — full hierarchical chart of accounts
+- [x] **Default accounts seeder** — standard poultry farm accounts (Assets, Liabilities, Equity, Revenue, Expenses)
+- [x] **Journal Entry API** (`/api/journal-entries`) — create balanced journal entries, assign to flock ID
+- [x] **Journal posting** — post/unpost entries, update account balances
+- [x] **Expense Quick-Entry API** (`/api/expenses`) — simplified expense entry that auto-creates journal entry
+- [x] **Trial Balance API** — generate trial balance at any date
+- [x] **Account Ledger API** — running balances, period summaries
+- [x] **Recurring Entry API** (`/api/accounting/recurring`) — templates with frequency, auto-generation
+- [x] **Fiscal Period API** (`/api/accounting/fiscal-periods`) — monthly periods, close/reopen, auto-generate
+- [x] Transaction validation: debits = credits on every entry
 
 ### Frontend
-- [ ] **Chart of Accounts page** — tree view of all accounts with balances, add/edit accounts
-- [ ] **Journal Entry page** — list of entries with filters (date range, flock, category, posted/unposted); entry form with dynamic debit/credit lines
-- [ ] **Quick Expense Entry** — simplified form: pick category, pick flock (SearchSelect), enter amount; system handles the accounting
-- [ ] **Account Ledger view** — click any account to see all transactions
-- [ ] Expense category breakdown per flock
-
-### Deliverables
-- Full double-entry accounting with balanced journal entries
-- Every expense tied to a flock ID
-- Quick-entry mode for common expenses (feed, grower payments, vet costs)
-- Trial balance generation
-- Account ledgers with running balances
+- [x] **Chart of Accounts page** — tree view of all accounts with balances, add/edit accounts
+- [x] **Journal Entry page** — list with filters, entry form with dynamic debit/credit lines
+- [x] **Quick Expense Entry** — simplified form: pick category, pick flock, enter amount
+- [x] **Account Ledger view** — click any account to see all transactions
+- [x] **Recurring Entries tab** — create/manage recurring templates, generate due entries
+- [x] **Fiscal Periods tab** — generate monthly periods, close/reopen with validation
 
 ---
 
-## PHASE 3: Egg Production & Inventory
-*Daily production tracking, production percentage graphing, egg inventory at Level Valley*
+## PHASE 3: Egg Production & Inventory — COMPLETE
+*Production tracking, production percentage graphing, egg inventory*
 
 ### Backend
-- [ ] **Production Entry API** (`/api/production`) — daily entry: flock, date, bird count, egg count; auto-calculate production % (eggs / birds * 100)
-- [ ] **Production History API** — query production data by flock, date range; return time series for graphing
-- [ ] **Egg Inventory API** (`/api/egg-inventory`) — track eggs received at Level Valley by flock ID, grade; cases in/out/on-hand
-- [ ] **Egg Grading** — Grade A (large/medium/small), Grade B, cracked, reject
-- [ ] **Egg Sale API** (`/api/egg-sales`) — record sales with buyer, grade, cases, price; auto-create revenue journal entry; link to flock ID
-- [ ] **Inventory valuation** — FIFO or weighted average costing
-- [ ] Production alerts — flag flocks below target production %
+- [x] **Production Entry API** (`/api/production`) — entry with bird/egg counts, auto-calculate production %
+- [x] **Bulk Production API** (`/api/production/bulk`) — record multiple flocks at once
+- [x] **Production History API** — query by flock, date range; return time series
+- [x] **Production Alerts API** (`/api/production/alerts`) — detect drops, low production, below breed standard, mortality spikes
+- [x] **Breed Curves API** (`/api/production/breed-curves`) — Lohmann Brown, Hy-Line W-36, Lohmann LSL-Classic
+- [x] **Egg Inventory API** (`/api/egg-inventory`) — track eggs by flock ID, grade; skids in/out/on-hand
+- [x] **Inventory by Flock API** — grouped by flock with barn location
+- [x] **Inventory Aging API** — flag eggs sitting >X days
+- [x] **Inventory Value API** — calculate value at contract prices
+- [x] **Inventory Alerts API** — low stock and aging warnings
+- [x] **Egg Sale API** (`/api/egg-sales`) — record sales, auto-create revenue journal entry
+- [x] **Egg Grading** — configurable grades (Grade A Large/Medium/Small, Grade B, Cracked, Reject)
 
 ### Frontend
-- [ ] **Production Entry page** — daily form: select flock, enter bird count & egg count; shows calculated production %
-- [ ] **Production Dashboard** — real-time production % graph per flock (Recharts line chart), with date range selector
-  - Overlay multiple flocks on same chart for comparison
-  - Standard curve overlay showing expected production
-  - Color-coded status (green = above target, yellow = marginal, red = below target)
-- [ ] **Egg Inventory page** — current inventory by grade, cases on hand, receiving log, shipping log
-- [ ] **Egg Sales page** — record sales, view sale history, totals by period
-- [ ] **Inventory Summary cards** — total cases on hand, broken down by grade
-
-### Deliverables
-- Daily production tracking with automatic % calculation
-- Interactive production graphs that update continuously
-- Complete egg inventory tracking at Level Valley
-- Sales tied to flocks and auto-posted to accounting
-- Production comparison across flocks
+- [x] **Production page** — single entry + bulk entry form for all active layer flocks
+- [x] **Production chart** — multi-flock overlay, breed standard curve toggle, 80% target line
+- [x] **Production alerts panel** — production drops, low production, breed standard, mortality spikes
+- [x] **Egg Inventory page** — tabs: By Grade, By Flock, Aging, Receiving Log, Sales, Contracts, Grades
+- [x] **Inventory value card** — estimated value at contract prices
+- [x] **Inventory alerts** — low stock and aging warnings
 
 ---
 
-## PHASE 4: Reporting & Financial Statements
+## PHASE 4: Reporting & Financial Statements — COMPLETE
 *Comprehensive reports: flock P&L, financial statements, production analytics*
 
 ### Backend
-- [ ] **Flock Report API** (`/api/reports/flock/{id}`) — complete flock lifecycle report:
-  - All expenses by category (feed, grower, vet, etc.) with totals
-  - All revenue (egg sales) with totals
-  - Net profit/loss for the flock
-  - Mortality summary (total deaths, culls, % lost)
-  - Production history summary (avg production %, peak, current)
-  - Barn placement history (timeline of where the flock has been)
-- [ ] **Income Statement API** — revenue minus expenses for any date range, with category breakdowns
-- [ ] **Balance Sheet API** — assets, liabilities, equity at any point in time
-- [ ] **Trial Balance API** — all accounts with debit/credit balances
-- [ ] **Production Report API** — production trends, flock comparisons, mortality rates
-- [ ] **Grower Report API** — payments to each grower, their barn utilization, flock performance at their farms
-- [ ] **Export to CSV/PDF** — all reports exportable
-- [ ] Date range filtering on all reports
+- [x] **Flock Report API** — complete lifecycle report with expenses, revenue, P&L, mortality, production, placements, lineage
+- [x] **Income Statement API** — revenue minus expenses with category breakdowns
+- [x] **Balance Sheet API** — assets, liabilities, equity
+- [x] **Trial Balance API** — all accounts with debit/credit balances
+- [x] Date range filtering on all reports
 
 ### Frontend
-- [ ] **Flock Report page** — comprehensive single-flock view: select any flock (SearchSelect) and see everything — expenses, revenue, P&L, production graph, mortality, barn history
-- [ ] **Financial Statements page**:
-  - Income Statement with category drill-down
-  - Balance Sheet
-  - Trial Balance
-- [ ] **Production Analytics page** — multi-flock production comparison, trend analysis, mortality charts
-- [ ] **Grower Performance page** — per-grower summary of payments, flock outcomes, barn utilization
-- [ ] **Report filters** — date range pickers, flock selector, grower selector, expense category filters
-- [ ] Print-friendly layouts, CSV/PDF export buttons
-
-### Deliverables
-- Pull a complete report on any flock at any time showing all costs and revenue
-- Standard financial statements (Income Statement, Balance Sheet, Trial Balance)
-- Production analytics with visual charts
-- Grower performance tracking
-- All reports exportable
+- [x] **Flock Report page** — comprehensive single-flock view with expense table, pie chart, revenue, production chart, placements
+- [x] **Financial Statements page** — Income Statement, Balance Sheet, Trial Balance
+- [x] **Report filters** — date range pickers, flock selector
 
 ---
 
-## PHASE 5: Polish, Settings & Advanced Features
-*User experience refinement, settings, data integrity, and operational tools*
+## PHASE 5: Polish, Settings & Advanced Features — PARTIALLY COMPLETE
 
 ### Backend
-- [ ] **User authentication** — login/logout, JWT tokens, role-based access (admin, manager, data entry)
-- [ ] **Audit log** — track who changed what and when
-- [ ] **Data backup/restore API** — export/import full database
-- [ ] **Dashboard aggregation API** — summary stats (active flocks, total birds, avg production %, inventory value, outstanding payables)
-- [ ] **Fiscal period management** — period close, year-end closing entries
-- [ ] **Recurring expenses** — set up recurring journal entries (e.g., monthly grower payments)
-- [ ] **Search API** — global search across growers, barns, flocks, transactions
+- [ ] **User authentication** — login/logout, JWT tokens, role-based access
+- [x] **Audit log** — track who changed what and when
+- [x] **Data backup/restore API** — export full database as JSON
+- [x] **Dashboard aggregation API** — summary stats, alerts, recent activity
+- [x] **Fiscal period management** — period close, year-end closing entries
+- [x] **Recurring expenses** — set up recurring journal entries with auto-generation
+- [x] **Search API** — global search across growers, barns, flocks, transactions
 - [ ] Input validation hardening, error handling, edge cases
 
 ### Frontend
-- [ ] **Settings page**:
-  - Manage users & roles
-  - Configure expense categories
-  - Set production targets per breed
-  - Fiscal year settings
-  - Backup & restore
-- [ ] **Dashboard enhancements**:
-  - Live stat cards with real data
-  - Production overview graph (all active flocks)
-  - Recent transactions feed
-  - Alerts panel (low production, high mortality, capacity warnings)
-- [ ] **Global search bar** — search flocks, growers, barns, transactions from anywhere
-- [ ] **Notification system** — alerts for anomalies (production drop, unusual mortality)
+- [ ] **Settings page**: Manage users & roles, configure expense categories, production targets per breed
+- [x] **Settings page**: General settings, database stats, audit log, export
+- [x] **Dashboard**: Live stat cards, production overview, recent activity, alerts
+- [x] **Global search bar** — Ctrl+K search across all entities
+- [ ] **Notification system** — in-app alerts for anomalies
 - [ ] **Dark UI polish** — animations, transitions, loading states, empty states
 - [ ] **Responsive design** — tablet-friendly for barn-side data entry
-- [ ] **Keyboard shortcuts** — quick navigation between sections
-- [ ] Comprehensive error handling and user feedback (toasts, confirmations)
-
-### Deliverables
-- Secure multi-user system with audit trail
-- Polished, production-ready UI
-- Operational dashboard with real-time insights
-- Data backup and restore
-- Fiscal period management
-
----
-
-## File Structure
-
-```
-Level Valley Farms/
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   │   └── routes/          # FastAPI route handlers
-│   │   │       ├── growers.py
-│   │   │       ├── barns.py
-│   │   │       ├── flocks.py
-│   │   │       ├── accounting.py
-│   │   │       ├── production.py
-│   │   │       ├── inventory.py
-│   │   │       └── reports.py
-│   │   ├── core/
-│   │   │   └── config.py        # App settings
-│   │   ├── db/
-│   │   │   └── database.py      # SQLAlchemy async engine & session
-│   │   ├── models/              # SQLAlchemy ORM models
-│   │   │   ├── base.py          # Mixins & helpers
-│   │   │   ├── farm.py          # Grower, Barn, FlockPlacement
-│   │   │   ├── flock.py         # Flock, MortalityRecord, ProductionRecord
-│   │   │   ├── accounting.py    # Account, JournalEntry, JournalLine
-│   │   │   └── inventory.py     # EggInventory, EggSale
-│   │   ├── schemas/             # Pydantic request/response schemas
-│   │   ├── services/            # Business logic layer
-│   │   ├── reports/             # Report generation logic
-│   │   └── main.py              # FastAPI app entry point
-│   ├── alembic/                 # DB migrations
-│   ├── tests/
-│   ├── requirements.txt
-│   └── .env
-├── frontend/
-│   ├── src/
-│   │   ├── api/
-│   │   │   └── client.js        # Axios HTTP client
-│   │   ├── components/
-│   │   │   ├── common/          # SearchSelect, modals, tables, forms
-│   │   │   ├── layout/          # Sidebar, Layout shell
-│   │   │   ├── dashboard/       # Stat cards, charts
-│   │   │   ├── farms/           # Grower components
-│   │   │   ├── barns/           # Barn components
-│   │   │   ├── flocks/          # Flock components, transfer wizard
-│   │   │   ├── accounting/      # Journal entries, chart of accounts
-│   │   │   ├── inventory/       # Egg inventory, sales
-│   │   │   └── reports/         # Report views, charts
-│   │   ├── contexts/            # React context providers
-│   │   ├── hooks/               # Custom React hooks
-│   │   ├── pages/               # Page-level components
-│   │   ├── styles/
-│   │   │   └── index.css        # Tailwind + glass UI styles
-│   │   ├── utils/               # Helpers, formatters
-│   │   ├── App.jsx
-│   │   └── main.jsx
-│   ├── package.json
-│   ├── tailwind.config.js
-│   └── vite.config.js
-└── IMPLEMENTATION_PLAN.md
-```
+- [ ] **Keyboard shortcuts** — quick navigation
+- [x] Error handling and user feedback (toasts, confirmations)
 
 ---
 
 ## Key Design Decisions
 
-1. **Flock ID is the backbone** — every expense, production record, egg batch, and sale links back to a flock ID. This enables the "pull a report on any flock at any time" requirement.
+1. **Flock ID format** — `[Color][Type][GrowerInitials][MMDDYY][-suffix]` auto-generated from bird color (B/W), flock type (P/L), grower initials, and hatch date. Suffix added for duplicates.
 
-2. **Double-entry accounting** — every financial transaction creates balanced debit/credit journal entries. No single-entry shortcuts. Account balances are always derivable from journal lines.
+2. **Pullet → Layer split** — Pullet flocks split into layer barns over multiple days. Each split creates or merges into a layer flock with weighted average cost-per-bird. FlockSource table tracks lineage.
 
-3. **Quick-entry + full journal** — users get a simple expense form for daily use, but behind the scenes it creates proper journal entries. Power users can also create manual journal entries directly.
+3. **Cost-per-bird inheritance** — Pullet expenses / surviving birds = inherited cost. Layer flocks show this as a line item. Multiple sources merge with weighted average.
 
-4. **Transfer = close placement + open placement** — when birds move barns, the old placement is closed and a new one opened. The flock ID never changes. All historical expenses remain linked.
+4. **Double-entry accounting** — Every financial transaction creates balanced debit/credit journal entries. Quick-entry for daily use, full journal for power users.
 
-5. **SQLite for simplicity** — single-file database, no server setup. Can be upgraded to PostgreSQL by changing one config line when scale demands it.
+5. **Flock closeout workflow** — When sold, user enters remaining egg inventory. System tracks until last skid sold, then marks flock as fully closed.
 
-6. **Glass UI theme** — dark background with translucent, blurred cards and subtle blue glow accents. All dropdowns use react-select with custom dark glass styling.
+6. **Glass UI theme** — Dark background with translucent, blurred cards and subtle blue glow accents.
+
+7. **SQLite for simplicity** — Single-file database, upgradeable to PostgreSQL.

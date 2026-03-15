@@ -65,6 +65,29 @@ async def inventory_summary(db: AsyncSession = Depends(get_db)):
     return await inventory_service.get_inventory_summary(db)
 
 
+@router.get("/eggs/by-flock")
+async def inventory_by_flock(db: AsyncSession = Depends(get_db)):
+    return await inventory_service.get_inventory_by_flock(db)
+
+
+@router.get("/eggs/aging")
+async def inventory_aging(
+    max_age_days: int = Query(7, ge=1),
+    db: AsyncSession = Depends(get_db),
+):
+    return await inventory_service.get_inventory_aging(db, max_age_days)
+
+
+@router.get("/eggs/value")
+async def inventory_value(db: AsyncSession = Depends(get_db)):
+    return await inventory_service.get_inventory_value(db)
+
+
+@router.get("/alerts")
+async def inventory_alerts(db: AsyncSession = Depends(get_db)):
+    return await inventory_service.get_inventory_alerts(db)
+
+
 # ── Sales ──
 
 @router.post("/sales", response_model=EggSaleResponse, status_code=201)

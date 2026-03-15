@@ -3,11 +3,16 @@ from sqlalchemy import select, func, and_
 from decimal import Decimal
 from typing import Optional, List
 
-from app.models.accounting import Account, AccountType, JournalEntry, JournalLine, ExpenseCategory
+from app.models.accounting import (
+    Account, AccountType, JournalEntry, JournalLine, ExpenseCategory,
+    RecurringEntry, RecurringFrequency, FiscalPeriod,
+)
 from app.models.flock import Flock
 from app.schemas.accounting import (
     AccountCreate, AccountUpdate, JournalEntryCreate, QuickExpenseCreate,
+    RecurringEntryCreate, RecurringEntryUpdate, FiscalPeriodCreate,
 )
+from datetime import date as date_type, timedelta
 
 # ── Counter for journal entry numbers ──
 
@@ -463,6 +468,275 @@ def _account_to_dict(account: Account) -> dict:
         "created_at": account.created_at,
         "updated_at": account.updated_at,
     }
+
+
+# ── Recurring Entries ──
+
+def _calc_next_due(frequency: str, from_date: str) -> str:
+    """Calculate the next due date based on frequency."""
+    d = date_type.fromisoformat(from_date)
+    if frequency == "weekly":
+        d += timedelta(weeks=1)
+    elif frequency == "biweekly":
+        d += timedelta(weeks=2)
+    elif frequency == "monthly":
+        month = d.month + 1
+        year = d.year
+        if month > 12:
+            month = 1
+            year += 1
+        day = min(d.day, 28)
+        d = d.replace(year=year, month=month, day=day)
+    elif frequency == "quarterly":
+        month = d.month + 3
+        year = d.year
+        while month > 12:
+            month -= 12
+            year += 1
+        day = min(d.day, 28)
+        d = d.replace(year=year, month=month, day=day)
+    elif frequency == "annually":
+        d = d.replace(year=d.year + 1)
+    return d.isoformat()
+
+
+async def get_recurring_entries(db: AsyncSession, active_only: bool = True):
+    query = select(RecurringEntry).order_by(RecurringEntry.name)
+    if active_only:
+        query = query.where(RecurringEntry.is_active == True)
+    result = await db.execute(query)
+    entries = result.scalars().all()
+
+    response = []
+    for r in entries:
+        exp_acct = await db.get(Account, r.expense_account_id)
+        pay_acct = await db.get(Account, r.payment_account_id)
+        flock = await db.get(Flock, r.flock_id) if r.flock_id else None
+        response.append({
+            **{c.key: getattr(r, c.key) for c in r.__table__.columns},
+            "frequency": r.frequency.value if hasattr(r.frequency, 'value') else r.frequency,
+            "expense_category": r.expense_category.value if r.expense_category and hasattr(r.expense_category, 'value') else (r.expense_category if r.expense_category else None),
+            "amount": float(r.amount),
+            "expense_account_name": exp_acct.name if exp_acct else "",
+            "payment_account_name": pay_acct.name if pay_acct else "",
+            "flock_number": flock.flock_number if flock else None,
+        })
+    return response
+
+
+async def create_recurring_entry(db: AsyncSession, data: RecurringEntryCreate):
+    next_due = data.start_date
+
+    entry = RecurringEntry(
+        name=data.name,
+        description=data.description,
+        frequency=RecurringFrequency(data.frequency),
+        amount=Decimal(str(data.amount)),
+        expense_account_id=data.expense_account_id,
+        payment_account_id=data.payment_account_id,
+        flock_id=data.flock_id,
+        expense_category=ExpenseCategory(data.expense_category) if data.expense_category else None,
+        start_date=data.start_date,
+        end_date=data.end_date,
+        next_due_date=next_due,
+        auto_post=data.auto_post,
+        notes=data.notes,
+    )
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+    return entry
+
+
+async def update_recurring_entry(db: AsyncSession, entry_id: str, data: RecurringEntryUpdate):
+    entry = await db.get(RecurringEntry, entry_id)
+    if not entry:
+        return None
+    for key, val in data.model_dump(exclude_unset=True).items():
+        setattr(entry, key, val)
+    await db.commit()
+    await db.refresh(entry)
+    return entry
+
+
+async def delete_recurring_entry(db: AsyncSession, entry_id: str):
+    entry = await db.get(RecurringEntry, entry_id)
+    if not entry:
+        return False
+    entry.is_active = False
+    await db.commit()
+    return True
+
+
+async def generate_recurring_entries(db: AsyncSession):
+    """Generate all due recurring journal entries."""
+    today = date_type.today().isoformat()
+    result = await db.execute(
+        select(RecurringEntry).where(
+            RecurringEntry.is_active == True,
+            RecurringEntry.next_due_date <= today,
+        )
+    )
+    recurring = result.scalars().all()
+
+    generated = []
+    for r in recurring:
+        # Check end date
+        if r.end_date and r.next_due_date > r.end_date:
+            r.is_active = False
+            continue
+
+        # Create journal entry
+        entry_number = await _next_entry_number(db)
+        je = JournalEntry(
+            entry_number=entry_number,
+            entry_date=r.next_due_date,
+            description=f"[Recurring] {r.description}",
+            flock_id=r.flock_id,
+            expense_category=r.expense_category,
+            reference=f"Recurring: {r.name}",
+            is_posted=r.auto_post,
+        )
+        db.add(je)
+        await db.flush()
+
+        db.add(JournalLine(
+            journal_entry_id=je.id,
+            account_id=r.expense_account_id,
+            debit=r.amount,
+            credit=Decimal("0"),
+            description=r.description,
+        ))
+        db.add(JournalLine(
+            journal_entry_id=je.id,
+            account_id=r.payment_account_id,
+            debit=Decimal("0"),
+            credit=r.amount,
+            description=r.description,
+        ))
+
+        # If auto-post, update account balances
+        if r.auto_post:
+            exp_acct = await db.get(Account, r.expense_account_id)
+            pay_acct = await db.get(Account, r.payment_account_id)
+            if exp_acct:
+                exp_acct.balance += r.amount
+            if pay_acct:
+                pay_acct.balance -= r.amount
+
+        # Update recurring entry
+        r.last_generated_date = r.next_due_date
+        r.next_due_date = _calc_next_due(r.frequency.value, r.next_due_date)
+
+        generated.append({
+            "recurring_name": r.name,
+            "entry_number": entry_number,
+            "amount": float(r.amount),
+            "date": r.last_generated_date,
+            "auto_posted": r.auto_post,
+        })
+
+    await db.commit()
+    return generated
+
+
+# ── Fiscal Periods ──
+
+async def get_fiscal_periods(db: AsyncSession):
+    result = await db.execute(
+        select(FiscalPeriod).order_by(FiscalPeriod.start_date)
+    )
+    periods = result.scalars().all()
+    return [{
+        **{c.key: getattr(p, c.key) for c in p.__table__.columns},
+    } for p in periods]
+
+
+async def create_fiscal_period(db: AsyncSession, data: FiscalPeriodCreate):
+    existing = await db.execute(
+        select(FiscalPeriod).where(FiscalPeriod.period_name == data.period_name)
+    )
+    if existing.scalar_one_or_none():
+        raise ValueError(f"Period '{data.period_name}' already exists")
+
+    period = FiscalPeriod(
+        period_name=data.period_name,
+        start_date=data.start_date,
+        end_date=data.end_date,
+    )
+    db.add(period)
+    await db.commit()
+    await db.refresh(period)
+    return period
+
+
+async def close_fiscal_period(db: AsyncSession, period_id: str):
+    period = await db.get(FiscalPeriod, period_id)
+    if not period:
+        raise ValueError("Period not found")
+    if period.is_closed:
+        raise ValueError("Period is already closed")
+
+    # Check for unposted entries in this period
+    unposted_result = await db.execute(
+        select(func.count(JournalEntry.id)).where(
+            JournalEntry.is_posted == False,
+            JournalEntry.entry_date >= period.start_date,
+            JournalEntry.entry_date <= period.end_date,
+        )
+    )
+    unposted = unposted_result.scalar() or 0
+    if unposted > 0:
+        raise ValueError(f"Cannot close period: {unposted} unposted journal entries exist in this period")
+
+    period.is_closed = True
+    period.closed_date = date_type.today().isoformat()
+    await db.commit()
+    return {"message": f"Period '{period.period_name}' closed", "period_id": period.id}
+
+
+async def reopen_fiscal_period(db: AsyncSession, period_id: str):
+    period = await db.get(FiscalPeriod, period_id)
+    if not period:
+        raise ValueError("Period not found")
+    if not period.is_closed:
+        raise ValueError("Period is not closed")
+
+    period.is_closed = False
+    period.closed_date = None
+    await db.commit()
+    return {"message": f"Period '{period.period_name}' reopened"}
+
+
+async def generate_fiscal_periods(db: AsyncSession, year: int, start_month: int = 1):
+    """Auto-generate 12 monthly fiscal periods for a year."""
+    generated = []
+    for i in range(12):
+        m = ((start_month - 1 + i) % 12) + 1
+        y = year + ((start_month - 1 + i) // 12)
+        start = date_type(y, m, 1)
+        if m == 12:
+            end = date_type(y + 1, 1, 1) - timedelta(days=1)
+        else:
+            end = date_type(y, m + 1, 1) - timedelta(days=1)
+
+        name = f"{y}-{m:02d}"
+        existing = await db.execute(
+            select(FiscalPeriod).where(FiscalPeriod.period_name == name)
+        )
+        if existing.scalar_one_or_none():
+            continue
+
+        period = FiscalPeriod(
+            period_name=name,
+            start_date=start.isoformat(),
+            end_date=end.isoformat(),
+        )
+        db.add(period)
+        generated.append(name)
+
+    await db.commit()
+    return generated
 
 
 async def _entry_to_dict(db: AsyncSession, entry: JournalEntry) -> dict:

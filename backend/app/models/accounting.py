@@ -65,6 +65,53 @@ class JournalEntry(Base, TimestampMixin):
     lines: Mapped[List["JournalLine"]] = relationship("JournalLine", back_populates="journal_entry", cascade="all, delete-orphan")
 
 
+class RecurringFrequency(str, enum.Enum):
+    WEEKLY = "weekly"
+    BIWEEKLY = "biweekly"
+    MONTHLY = "monthly"
+    QUARTERLY = "quarterly"
+    ANNUALLY = "annually"
+
+
+class RecurringEntry(Base, TimestampMixin):
+    """Template for recurring journal entries that auto-generate."""
+    __tablename__ = "recurring_entries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(String(500), nullable=False)
+    frequency: Mapped[RecurringFrequency] = mapped_column(nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    expense_account_id: Mapped[str] = mapped_column(String(36), ForeignKey("accounts.id"), nullable=False)
+    payment_account_id: Mapped[str] = mapped_column(String(36), ForeignKey("accounts.id"), nullable=False)
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"))
+    expense_category: Mapped[Optional[ExpenseCategory]] = mapped_column()
+    start_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    end_date: Mapped[Optional[str]] = mapped_column(String(10))
+    last_generated_date: Mapped[Optional[str]] = mapped_column(String(10))
+    next_due_date: Mapped[Optional[str]] = mapped_column(String(10))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_post: Mapped[bool] = mapped_column(Boolean, default=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    expense_account: Mapped["Account"] = relationship("Account", foreign_keys=[expense_account_id])
+    payment_account: Mapped["Account"] = relationship("Account", foreign_keys=[payment_account_id])
+
+
+class FiscalPeriod(Base, TimestampMixin):
+    """Fiscal period (month) for period-based closing."""
+    __tablename__ = "fiscal_periods"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    period_name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    start_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    end_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    is_closed: Mapped[bool] = mapped_column(Boolean, default=False)
+    closed_date: Mapped[Optional[str]] = mapped_column(String(10))
+    closed_by: Mapped[Optional[str]] = mapped_column(String(100))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+
 class JournalLine(Base, TimestampMixin):
     """Individual debit/credit line in a journal entry."""
     __tablename__ = "journal_lines"

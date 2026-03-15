@@ -3,12 +3,16 @@ import ChartOfAccounts from '../components/accounting/ChartOfAccounts'
 import JournalEntries from '../components/accounting/JournalEntries'
 import QuickExpense from '../components/accounting/QuickExpense'
 import TrialBalance from '../components/accounting/TrialBalance'
+import RecurringEntries from '../components/accounting/RecurringEntries'
+import FiscalPeriods from '../components/accounting/FiscalPeriods'
 
 const tabs = [
   { id: 'quick', label: 'Quick Expense' },
   { id: 'journal', label: 'Journal Entries' },
+  { id: 'recurring', label: 'Recurring' },
   { id: 'accounts', label: 'Chart of Accounts' },
   { id: 'trial', label: 'Trial Balance' },
+  { id: 'fiscal', label: 'Fiscal Periods' },
 ]
 
 export default function Accounting() {
@@ -36,8 +40,10 @@ export default function Accounting() {
 
       {activeTab === 'quick' && <QuickExpense />}
       {activeTab === 'journal' && <JournalEntries />}
+      {activeTab === 'recurring' && <RecurringEntries />}
       {activeTab === 'accounts' && <ChartOfAccounts />}
       {activeTab === 'trial' && <TrialBalance />}
+      {activeTab === 'fiscal' && <FiscalPeriods />}
     </div>
   )
 }

@@ -7,6 +7,8 @@ from app.schemas.accounting import (
     AccountCreate, AccountUpdate, AccountResponse,
     JournalEntryCreate, JournalEntryResponse, JournalEntryUpdate,
     QuickExpenseCreate, TrialBalanceResponse, AccountLedgerEntry,
+    RecurringEntryCreate, RecurringEntryUpdate, RecurringEntryResponse,
+    FiscalPeriodCreate, FiscalPeriodResponse,
 )
 from app.services import accounting_service
 
@@ -148,3 +150,87 @@ async def get_account_ledger(
         return await accounting_service.get_account_ledger(db, account_id, date_from, date_to)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Recurring Entries ──
+
+@router.get("/recurring", response_model=List[RecurringEntryResponse])
+async def list_recurring(
+    active_only: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+):
+    return await accounting_service.get_recurring_entries(db, active_only)
+
+
+@router.post("/recurring", response_model=RecurringEntryResponse, status_code=201)
+async def create_recurring(data: RecurringEntryCreate, db: AsyncSession = Depends(get_db)):
+    try:
+        entry = await accounting_service.create_recurring_entry(db, data)
+        entries = await accounting_service.get_recurring_entries(db, False)
+        return next(e for e in entries if e["id"] == entry.id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/recurring/{entry_id}", response_model=RecurringEntryResponse)
+async def update_recurring(entry_id: str, data: RecurringEntryUpdate, db: AsyncSession = Depends(get_db)):
+    entry = await accounting_service.update_recurring_entry(db, entry_id, data)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Recurring entry not found")
+    entries = await accounting_service.get_recurring_entries(db, False)
+    return next(e for e in entries if e["id"] == entry.id)
+
+
+@router.delete("/recurring/{entry_id}")
+async def delete_recurring(entry_id: str, db: AsyncSession = Depends(get_db)):
+    success = await accounting_service.delete_recurring_entry(db, entry_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Recurring entry not found")
+    return {"message": "Recurring entry deactivated"}
+
+
+@router.post("/recurring/generate")
+async def generate_recurring(db: AsyncSession = Depends(get_db)):
+    result = await accounting_service.generate_recurring_entries(db)
+    return {"generated": result, "count": len(result)}
+
+
+# ── Fiscal Periods ──
+
+@router.get("/fiscal-periods", response_model=List[FiscalPeriodResponse])
+async def list_fiscal_periods(db: AsyncSession = Depends(get_db)):
+    return await accounting_service.get_fiscal_periods(db)
+
+
+@router.post("/fiscal-periods", response_model=FiscalPeriodResponse, status_code=201)
+async def create_fiscal_period(data: FiscalPeriodCreate, db: AsyncSession = Depends(get_db)):
+    try:
+        return await accounting_service.create_fiscal_period(db, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/fiscal-periods/{period_id}/close")
+async def close_fiscal_period(period_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        return await accounting_service.close_fiscal_period(db, period_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/fiscal-periods/{period_id}/reopen")
+async def reopen_fiscal_period(period_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        return await accounting_service.reopen_fiscal_period(db, period_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/fiscal-periods/generate")
+async def generate_fiscal_periods(
+    year: int = Query(...),
+    start_month: int = Query(1, ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+):
+    generated = await accounting_service.generate_fiscal_periods(db, year, start_month)
+    return {"generated": generated, "count": len(generated)}

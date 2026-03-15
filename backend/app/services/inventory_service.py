@@ -4,9 +4,12 @@ from decimal import Decimal
 from typing import Optional
 
 from app.models.inventory import EggInventory, EggSale, EggGrade
-from app.models.flock import Flock
+from app.models.flock import Flock, FlockStatus
+from app.models.farm import Barn, FlockPlacement, Grower
 from app.models.accounting import Account, JournalEntry, JournalLine, AccountType
+from app.models.contracts import EggContract, ContractFlockAssignment
 from app.schemas.inventory import EggInventoryCreate, EggSaleCreate, EggGradeCreate
+from datetime import date as date_type, datetime
 from app.services.accounting_service import _next_entry_number
 
 
@@ -284,6 +287,191 @@ async def get_sales(
     result = await db.execute(query)
     sales = result.scalars().all()
     return [await _sale_to_dict(db, s) for s in sales]
+
+
+# ── Inventory by Flock ──
+
+async def get_inventory_by_flock(db: AsyncSession):
+    """Get current inventory grouped by flock with barn location."""
+    # Get all flock IDs that have inventory
+    flock_ids_result = await db.execute(
+        select(EggInventory.flock_id).distinct()
+    )
+    flock_ids = [r[0] for r in flock_ids_result.all()]
+
+    result = []
+    for flock_id in flock_ids:
+        flock = await db.get(Flock, flock_id)
+        if not flock:
+            continue
+
+        # Get current barn
+        placement_result = await db.execute(
+            select(FlockPlacement)
+            .where(FlockPlacement.flock_id == flock_id, FlockPlacement.is_current == True)
+            .limit(1)
+        )
+        placement = placement_result.scalars().first()
+        barn_name = ""
+        grower_name = ""
+        if placement:
+            barn = await db.get(Barn, placement.barn_id)
+            if barn:
+                barn_name = barn.name
+                grower = await db.get(Grower, barn.grower_id)
+                grower_name = grower.name if grower else ""
+
+        # Get inventory by grade for this flock
+        grades_result = await db.execute(
+            select(EggInventory.grade).where(EggInventory.flock_id == flock_id).distinct()
+        )
+        grades = []
+        total_skids = 0
+        for row in grades_result.all():
+            grade_val = row[0]
+            on_hand = await _get_on_hand(db, flock_id, grade_val)
+            if on_hand > 0:
+                grade_label = await _get_grade_label(db, grade_val)
+                grades.append({
+                    "grade": grade_val,
+                    "grade_label": grade_label,
+                    "skids_on_hand": on_hand,
+                })
+                total_skids += on_hand
+
+        if total_skids > 0:
+            result.append({
+                "flock_id": flock_id,
+                "flock_number": flock.flock_number,
+                "flock_status": flock.status.value,
+                "barn_name": barn_name,
+                "grower_name": grower_name,
+                "total_skids": total_skids,
+                "grades": grades,
+            })
+
+    return result
+
+
+async def get_inventory_aging(db: AsyncSession, max_age_days: int = 7):
+    """Find inventory records older than max_age_days."""
+    today = date_type.today()
+    aging_items = []
+
+    # Get all flock+grade combos with inventory on hand
+    flock_ids_result = await db.execute(
+        select(EggInventory.flock_id, EggInventory.grade).distinct()
+    )
+    for flock_id, grade in flock_ids_result.all():
+        on_hand = await _get_on_hand(db, flock_id, grade)
+        if on_hand <= 0:
+            continue
+
+        # Get oldest unreceived inventory date
+        oldest_result = await db.execute(
+            select(EggInventory.record_date)
+            .where(
+                EggInventory.flock_id == flock_id,
+                EggInventory.grade == grade,
+                EggInventory.skids_in > 0,
+            )
+            .order_by(EggInventory.record_date.asc())
+            .limit(1)
+        )
+        oldest_date_str = oldest_result.scalar_one_or_none()
+        if not oldest_date_str:
+            continue
+
+        try:
+            oldest_date = date_type.fromisoformat(oldest_date_str)
+            age_days = (today - oldest_date).days
+        except (ValueError, TypeError):
+            continue
+
+        if age_days >= max_age_days:
+            flock = await db.get(Flock, flock_id)
+            grade_label = await _get_grade_label(db, grade)
+            aging_items.append({
+                "flock_id": flock_id,
+                "flock_number": flock.flock_number if flock else "",
+                "grade": grade,
+                "grade_label": grade_label,
+                "skids_on_hand": on_hand,
+                "oldest_date": oldest_date_str,
+                "age_days": age_days,
+            })
+
+    aging_items.sort(key=lambda x: x["age_days"], reverse=True)
+    return aging_items
+
+
+async def get_inventory_value(db: AsyncSession):
+    """Calculate inventory value using current contract prices."""
+    summary = await get_inventory_summary(db)
+
+    # Get active contracts with prices by grade
+    contracts_result = await db.execute(
+        select(EggContract).where(EggContract.is_active == True)
+    )
+    contracts = contracts_result.scalars().all()
+
+    # Build price map by grade (use highest contract price)
+    grade_prices = {}
+    for c in contracts:
+        if c.price_per_dozen and c.grade:
+            current = grade_prices.get(c.grade, Decimal("0"))
+            if c.price_per_dozen > current:
+                grade_prices[c.grade] = c.price_per_dozen
+
+    total_value = Decimal("0")
+    items = []
+    for s in summary:
+        price = grade_prices.get(s["grade"])
+        value = Decimal(str(s["total_dozens"])) * price if price else None
+        items.append({
+            **s,
+            "price_per_dozen": float(price) if price else None,
+            "estimated_value": float(value) if value else None,
+        })
+        if value:
+            total_value += value
+
+    return {
+        "items": items,
+        "total_estimated_value": float(total_value),
+    }
+
+
+async def get_inventory_alerts(db: AsyncSession):
+    """Generate low stock and aging alerts."""
+    alerts = []
+
+    # Low stock: any grade with < 5 skids total
+    summary = await get_inventory_summary(db)
+    for s in summary:
+        if s["total_skids_on_hand"] < 5:
+            alerts.append({
+                "type": "low_stock",
+                "severity": "warning",
+                "grade": s["grade"],
+                "grade_label": s["grade_label"],
+                "message": f"{s['grade_label']}: only {s['total_skids_on_hand']} skids on hand",
+                "value": s["total_skids_on_hand"],
+            })
+
+    # Aging: eggs sitting > 10 days
+    aging = await get_inventory_aging(db, 10)
+    for a in aging:
+        alerts.append({
+            "type": "aging",
+            "severity": "danger" if a["age_days"] > 14 else "warning",
+            "grade": a["grade"],
+            "grade_label": a["grade_label"],
+            "message": f"{a['flock_number']} {a['grade_label']}: {a['skids_on_hand']} skids sitting {a['age_days']} days",
+            "value": a["age_days"],
+        })
+
+    return alerts
 
 
 # ── Helpers ──

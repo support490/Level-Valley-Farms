@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Plus, ShoppingCart, Package, Trash2, FileText, UserPlus, X } from 'lucide-react'
-import { addInventory, getInventory, getInventorySummary, recordSale, getSales, getEggGrades, createEggGrade, deleteEggGrade } from '../api/inventory'
+import { Plus, ShoppingCart, Package, Trash2, FileText, UserPlus, X, AlertTriangle, Clock, DollarSign } from 'lucide-react'
+import { addInventory, getInventory, getInventorySummary, recordSale, getSales, getEggGrades, createEggGrade, deleteEggGrade, getInventoryByFlock, getInventoryAging, getInventoryValue, getInventoryAlerts } from '../api/inventory'
 import { getFlocks } from '../api/flocks'
 import { getContracts, createContract, deleteContract, assignFlockToContract, unassignFlockFromContract } from '../api/contracts'
 import SearchSelect from '../components/common/SearchSelect'
@@ -22,6 +22,10 @@ export default function Inventory() {
   const [saleOpen, setSaleOpen] = useState(false)
   const [addGradeOpen, setAddGradeOpen] = useState(false)
   const [deleteGradeTarget, setDeleteGradeTarget] = useState(null)
+  const [byFlock, setByFlock] = useState([])
+  const [aging, setAging] = useState([])
+  const [invValue, setInvValue] = useState(null)
+  const [invAlerts, setInvAlerts] = useState([])
   const [contracts, setContracts] = useState([])
   const [contractOpen, setContractOpen] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
@@ -48,14 +52,22 @@ export default function Inventory() {
 
   const load = async () => {
     try {
-      const [flocksRes, summaryRes, recordsRes, salesRes, gradesRes, contractsRes] = await Promise.all([
-        getFlocks(), getInventorySummary(), getInventory(), getSales(), getEggGrades(), getContracts()
+      const [flocksRes, summaryRes, recordsRes, salesRes, gradesRes, contractsRes, byFlockRes, agingRes, valueRes, alertsRes] = await Promise.all([
+        getFlocks(), getInventorySummary(), getInventory(), getSales(), getEggGrades(), getContracts(),
+        getInventoryByFlock().catch(() => ({ data: [] })),
+        getInventoryAging(7).catch(() => ({ data: [] })),
+        getInventoryValue().catch(() => ({ data: null })),
+        getInventoryAlerts().catch(() => ({ data: [] })),
       ])
       setFlocks(flocksRes.data)
       setSummary(summaryRes.data)
       setRecords(recordsRes.data)
       setSales(salesRes.data)
       setContracts(contractsRes.data)
+      setByFlock(byFlockRes.data)
+      setAging(agingRes.data)
+      setInvValue(valueRes.data)
+      setInvAlerts(alertsRes.data)
       const grades = gradesRes.data.map(g => ({ value: g.value, label: g.label, id: g.id }))
       setGradeOptions(grades)
       // Set default grade
@@ -265,7 +277,17 @@ export default function Inventory() {
           <p className="text-3xl font-bold text-lvf-accent">{totalSkids.toLocaleString()}</p>
           <p className="text-xs text-lvf-muted mt-1">skids ({totalDozens.toLocaleString()} doz)</p>
         </div>
-        {summary.slice(0, 3).map(s => (
+        <div className="glass-card stat-glow p-5">
+          <div className="flex items-center gap-2 mb-2">
+            <DollarSign size={16} className="text-lvf-success" />
+            <p className="text-sm text-lvf-muted">Est. Value</p>
+          </div>
+          <p className="text-2xl font-bold text-lvf-success">
+            ${invValue?.total_estimated_value ? invValue.total_estimated_value.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '0.00'}
+          </p>
+          <p className="text-xs text-lvf-muted mt-1">at contract prices</p>
+        </div>
+        {summary.slice(0, 2).map(s => (
           <div key={s.grade} className="glass-card stat-glow p-5">
             <p className="text-sm text-lvf-muted mb-2">{s.grade_label || gradeLabel(s.grade)}</p>
             <p className="text-2xl font-bold">{s.total_skids_on_hand.toLocaleString()}</p>
@@ -274,14 +296,33 @@ export default function Inventory() {
         ))}
       </div>
 
+      {/* Inventory Alerts */}
+      {invAlerts.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {invAlerts.map((a, i) => (
+            <div key={i} className={`glass-card p-3 border flex items-center gap-3 ${
+              a.severity === 'danger' ? 'border-lvf-danger/30 bg-lvf-danger/10' : 'border-lvf-warning/30 bg-lvf-warning/10'
+            }`}>
+              {a.type === 'aging' ? <Clock size={16} className="text-lvf-warning" /> : <AlertTriangle size={16} className="text-lvf-warning" />}
+              <span className="text-sm flex-1">{a.message}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                a.type === 'aging' ? 'bg-lvf-warning/20 text-lvf-warning' : 'bg-lvf-danger/20 text-lvf-danger'
+              }`}>{a.type === 'aging' ? 'aging' : 'low stock'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex gap-1 mb-4 p-1 glass-card w-fit">
         {[
-          { id: 'overview', label: 'Inventory by Grade' },
+          { id: 'overview', label: 'By Grade' },
+          { id: 'byflock', label: 'By Flock' },
+          { id: 'aging', label: 'Aging' },
           { id: 'log', label: 'Receiving Log' },
-          { id: 'sales', label: 'Sales History' },
+          { id: 'sales', label: 'Sales' },
           { id: 'contracts', label: 'Contracts' },
-          { id: 'grades', label: 'Egg Grades' },
+          { id: 'grades', label: 'Grades' },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
@@ -313,6 +354,84 @@ export default function Inventory() {
               ))}
               {summary.length === 0 && (
                 <tr><td colSpan={3} className="text-center py-8 text-lvf-muted">No inventory on hand.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Inventory by Flock */}
+      {tab === 'byflock' && (
+        <div className="space-y-4">
+          {byFlock.map(f => (
+            <div key={f.flock_id} className="glass-card p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <span className="text-lvf-accent font-semibold">{f.flock_number}</span>
+                  <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                    f.flock_status === 'closing' ? 'bg-lvf-warning/20 text-lvf-warning' :
+                    f.flock_status === 'active' ? 'bg-lvf-success/20 text-lvf-success' :
+                    'bg-lvf-muted/20 text-lvf-muted'
+                  }`}>{f.flock_status}</span>
+                </div>
+                <div className="text-sm text-lvf-muted">
+                  {f.barn_name && <span>{f.barn_name}</span>}
+                  {f.grower_name && <span className="ml-2">({f.grower_name})</span>}
+                </div>
+              </div>
+              <div className="flex gap-4">
+                {f.grades.map(g => (
+                  <div key={g.grade} className="glass-card p-3 text-center min-w-[100px]">
+                    <p className="text-xs text-lvf-muted">{g.grade_label}</p>
+                    <p className="text-lg font-bold">{g.skids_on_hand}</p>
+                    <p className="text-[10px] text-lvf-muted">skids</p>
+                  </div>
+                ))}
+                <div className="glass-card p-3 text-center min-w-[100px] bg-lvf-accent/5">
+                  <p className="text-xs text-lvf-muted">Total</p>
+                  <p className="text-lg font-bold text-lvf-accent">{f.total_skids}</p>
+                  <p className="text-[10px] text-lvf-muted">skids</p>
+                </div>
+              </div>
+            </div>
+          ))}
+          {byFlock.length === 0 && (
+            <div className="glass-card p-12 text-center text-lvf-muted">No inventory on hand.</div>
+          )}
+        </div>
+      )}
+
+      {/* Aging */}
+      {tab === 'aging' && (
+        <div className="glass-card overflow-hidden">
+          <table className="w-full glass-table">
+            <thead>
+              <tr>
+                <th>Flock</th><th>Grade</th><th className="text-right">Skids</th>
+                <th>Oldest Received</th><th className="text-right">Age (Days)</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {aging.map((a, i) => (
+                <tr key={i}>
+                  <td className="text-lvf-accent font-medium">{a.flock_number}</td>
+                  <td>{a.grade_label}</td>
+                  <td className="text-right font-mono">{a.skids_on_hand}</td>
+                  <td className="text-lvf-muted">{a.oldest_date}</td>
+                  <td className="text-right font-mono font-bold">{a.age_days}</td>
+                  <td>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                      a.age_days > 14 ? 'bg-lvf-danger/20 text-lvf-danger' :
+                      a.age_days > 7 ? 'bg-lvf-warning/20 text-lvf-warning' :
+                      'bg-lvf-success/20 text-lvf-success'
+                    }`}>
+                      {a.age_days > 14 ? 'Critical' : a.age_days > 7 ? 'Aging' : 'Fresh'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {aging.length === 0 && (
+                <tr><td colSpan={6} className="text-center py-8 text-lvf-muted">No aging inventory (all eggs received within 7 days).</td></tr>
               )}
             </tbody>
           </table>
