@@ -1,0 +1,12 @@
+import api from './client'
+
+export const getEggGrades = () => api.get('/inventory/grades')
+export const createEggGrade = (data) => api.post('/inventory/grades', data)
+export const deleteEggGrade = (id) => api.delete(`/inventory/grades/${id}`)
+
+export const addInventory = (data) => api.post('/inventory/eggs', data)
+export const getInventory = (params = {}) => api.get('/inventory/eggs', { params })
+export const getInventorySummary = () => api.get('/inventory/eggs/summary')
+
+export const recordSale = (data) => api.post('/inventory/sales', data)
+export const getSales = (params = {}) => api.get('/inventory/sales', { params })
