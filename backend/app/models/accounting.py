@@ -112,6 +112,100 @@ class FiscalPeriod(Base, TimestampMixin):
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
 
+class BillStatus(str, enum.Enum):
+    DRAFT = "draft"
+    RECEIVED = "received"
+    PARTIAL = "partial"
+    PAID = "paid"
+    OVERDUE = "overdue"
+    CANCELLED = "cancelled"
+
+
+class InvoiceStatus(str, enum.Enum):
+    DRAFT = "draft"
+    SENT = "sent"
+    PARTIAL = "partial"
+    PAID = "paid"
+    OVERDUE = "overdue"
+    CANCELLED = "cancelled"
+
+
+class PaymentMethod(str, enum.Enum):
+    CHECK = "check"
+    ACH = "ach"
+    WIRE = "wire"
+    CASH = "cash"
+    CREDIT_CARD = "credit_card"
+    OTHER = "other"
+
+
+class Bill(Base, TimestampMixin):
+    """An accounts payable bill from a vendor."""
+    __tablename__ = "bills"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    bill_number: Mapped[str] = mapped_column(String(100), nullable=False)
+    vendor_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    vendor_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("vendors.id"), index=True)
+    bill_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    due_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    amount_paid: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    status: Mapped[BillStatus] = mapped_column(default=BillStatus.RECEIVED)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"), index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    payments: Mapped[List["BillPayment"]] = relationship("BillPayment", back_populates="bill", cascade="all, delete-orphan")
+
+
+class BillPayment(Base, TimestampMixin):
+    """A payment against a bill."""
+    __tablename__ = "bill_payments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    bill_id: Mapped[str] = mapped_column(String(36), ForeignKey("bills.id"), nullable=False, index=True)
+    payment_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    payment_method: Mapped[PaymentMethod] = mapped_column(default=PaymentMethod.CHECK)
+    reference: Mapped[Optional[str]] = mapped_column(String(200))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    bill: Mapped["Bill"] = relationship("Bill", back_populates="payments")
+
+
+class CustomerInvoice(Base, TimestampMixin):
+    """An accounts receivable invoice to a customer."""
+    __tablename__ = "customer_invoices"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    invoice_number: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    buyer: Mapped[str] = mapped_column(String(200), nullable=False)
+    buyer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("buyers.id"), index=True)
+    shipment_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("shipments.id"), index=True)
+    invoice_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    due_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    amount_paid: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    status: Mapped[InvoiceStatus] = mapped_column(default=InvoiceStatus.SENT)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class BankAccount(Base, TimestampMixin):
+    """A bank account for tracking cash."""
+    __tablename__ = "bank_accounts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    account_number_last4: Mapped[Optional[str]] = mapped_column(String(4))
+    bank_name: Mapped[Optional[str]] = mapped_column(String(200))
+    account_type: Mapped[str] = mapped_column(String(50), default="checking")
+    balance: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal("0.00"))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+
 class JournalLine(Base, TimestampMixin):
     """Individual debit/credit line in a journal entry."""
     __tablename__ = "journal_lines"

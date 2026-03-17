@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { Save, Database, Download, History, Sliders } from 'lucide-react'
-import { getSettings, updateSettings, getAuditLog, getDbStats, exportData } from '../api/settings'
+import { useState, useEffect, useRef } from 'react'
+import { Save, Database, Download, History, Sliders, Upload } from 'lucide-react'
+import { getSettings, updateSettings, getAuditLog, getDbStats, exportData, downloadBackup, importCsv } from '../api/settings'
 import Toast from '../components/common/Toast'
 import useToast from '../hooks/useToast'
 
@@ -58,8 +58,43 @@ export default function Settings() {
     }
   }
 
+  const [importType, setImportType] = useState('growers')
+  const [importResult, setImportResult] = useState(null)
+  const fileRef = useRef(null)
+
+  const handleImport = async () => {
+    const file = fileRef.current?.files?.[0]
+    if (!file) { showToast('Select a CSV file', 'error'); return }
+    try {
+      const res = await importCsv(file, importType)
+      setImportResult(res.data)
+      showToast(`Imported ${res.data.imported} records`)
+      fileRef.current.value = ''
+      load()
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'Import failed', 'error')
+    }
+  }
+
+  const handleBackupDownload = async () => {
+    try {
+      const res = await downloadBackup()
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      const disposition = res.headers['content-disposition']
+      a.download = disposition ? disposition.split('filename=')[1] : 'lvf-backup.json'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+      showToast('Backup downloaded')
+    } catch { showToast('Backup failed', 'error') }
+  }
+
   const tabs = [
     { id: 'general', label: 'General', icon: Sliders },
+    { id: 'import', label: 'Import Data', icon: Upload },
     { id: 'database', label: 'Database', icon: Database },
     { id: 'audit', label: 'Audit Log', icon: History },
   ]
@@ -131,6 +166,51 @@ export default function Settings() {
         </div>
       )}
 
+      {/* Import Data */}
+      {tab === 'import' && (
+        <div className="max-w-2xl space-y-6">
+          <div className="glass-card p-6">
+            <h3 className="font-semibold mb-2">Import from CSV</h3>
+            <p className="text-xs text-lvf-muted mb-4">Upload a CSV file to import growers or production records</p>
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <div>
+                  <label className="block text-sm text-lvf-muted mb-1">Data Type</label>
+                  <select className="glass-input" value={importType} onChange={e => setImportType(e.target.value)}>
+                    <option value="growers">Growers</option>
+                    <option value="production">Production Records</option>
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="block text-sm text-lvf-muted mb-1">CSV File</label>
+                  <input ref={fileRef} type="file" accept=".csv" className="glass-input w-full text-sm" />
+                </div>
+              </div>
+              <div className="text-xs text-lvf-muted">
+                {importType === 'growers' && <p>Columns: name, location, contact_name, contact_phone, contact_email, notes</p>}
+                {importType === 'production' && <p>Columns: flock_number, record_date, bird_count, egg_count, cracked, floor_eggs</p>}
+              </div>
+              <button onClick={handleImport} className="glass-button-primary flex items-center gap-2">
+                <Upload size={14} /> Import CSV
+              </button>
+              {importResult && (
+                <div className="glass-card p-4 mt-3">
+                  <p className="text-sm font-medium">Import Results</p>
+                  <p className="text-xs text-lvf-muted mt-1">
+                    {importResult.imported} of {importResult.total_rows} rows imported
+                  </p>
+                  {importResult.errors?.length > 0 && (
+                    <div className="mt-2 text-xs text-lvf-danger space-y-1">
+                      {importResult.errors.map((e, i) => <p key={i}>{e}</p>)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Database */}
       {tab === 'database' && (
         <div className="max-w-2xl space-y-6">
@@ -148,10 +228,15 @@ export default function Settings() {
 
           <div className="glass-card p-6">
             <h3 className="font-semibold mb-2">Data Backup</h3>
-            <p className="text-xs text-lvf-muted mb-4">Export all data as a JSON file for backup</p>
-            <button onClick={handleExport} className="glass-button-primary flex items-center gap-2">
-              <Download size={14} /> Export Database
-            </button>
+            <p className="text-xs text-lvf-muted mb-4">Download a full JSON backup of all data</p>
+            <div className="flex gap-3">
+              <button onClick={handleBackupDownload} className="glass-button-primary flex items-center gap-2">
+                <Download size={14} /> Download Backup
+              </button>
+              <button onClick={handleExport} className="glass-button-secondary flex items-center gap-2">
+                <Download size={14} /> View Export JSON
+              </button>
+            </div>
           </div>
         </div>
       )}

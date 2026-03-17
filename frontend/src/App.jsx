@@ -7,30 +7,62 @@ import FlockDetail from './pages/FlockDetail'
 import Accounting from './pages/Accounting'
 import Production from './pages/Production'
 import Inventory from './pages/Inventory'
+import Contracts from './pages/Contracts'
+import Feed from './pages/Feed'
 import Logistics from './pages/Logistics'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
+import Login from './pages/Login'
 import ErrorBoundary from './components/common/ErrorBoundary'
+import { AuthProvider } from './hooks/useAuth'
+import useAuth from './hooks/useAuth'
+import { ThemeProvider } from './hooks/useTheme'
+
+function AppRoutes() {
+  const { user, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-lvf-border border-t-lvf-accent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <Login />
+  }
+
+  return (
+    <Routes>
+      <Route path="/" element={<Layout />}>
+        <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+        <Route path="growers" element={<ErrorBoundary><Growers /></ErrorBoundary>} />
+        <Route path="barns" element={<Navigate to="/growers" replace />} />
+        <Route path="flocks" element={<ErrorBoundary><Flocks /></ErrorBoundary>} />
+        <Route path="flocks/:flockId" element={<ErrorBoundary><FlockDetail /></ErrorBoundary>} />
+        <Route path="production" element={<ErrorBoundary><Production /></ErrorBoundary>} />
+        <Route path="accounting" element={<ErrorBoundary><Accounting /></ErrorBoundary>} />
+        <Route path="inventory" element={<ErrorBoundary><Inventory /></ErrorBoundary>} />
+        <Route path="contracts" element={<ErrorBoundary><Contracts /></ErrorBoundary>} />
+        <Route path="feed" element={<ErrorBoundary><Feed /></ErrorBoundary>} />
+        <Route path="logistics" element={<ErrorBoundary><Logistics /></ErrorBoundary>} />
+        <Route path="reports" element={<ErrorBoundary><Reports /></ErrorBoundary>} />
+        <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+      </Route>
+    </Routes>
+  )
+}
 
 export default function App() {
   return (
     <BrowserRouter>
       <ErrorBoundary>
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
-            <Route path="growers" element={<ErrorBoundary><Growers /></ErrorBoundary>} />
-            <Route path="barns" element={<Navigate to="/growers" replace />} />
-            <Route path="flocks" element={<ErrorBoundary><Flocks /></ErrorBoundary>} />
-            <Route path="flocks/:flockId" element={<ErrorBoundary><FlockDetail /></ErrorBoundary>} />
-            <Route path="production" element={<ErrorBoundary><Production /></ErrorBoundary>} />
-            <Route path="accounting" element={<ErrorBoundary><Accounting /></ErrorBoundary>} />
-            <Route path="inventory" element={<ErrorBoundary><Inventory /></ErrorBoundary>} />
-            <Route path="logistics" element={<ErrorBoundary><Logistics /></ErrorBoundary>} />
-            <Route path="reports" element={<ErrorBoundary><Reports /></ErrorBoundary>} />
-            <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
-          </Route>
-        </Routes>
+        <ThemeProvider>
+          <AuthProvider>
+            <AppRoutes />
+          </AuthProvider>
+        </ThemeProvider>
       </ErrorBoundary>
     </BrowserRouter>
   )

@@ -6,156 +6,65 @@ Poultry farm management & accounting software for egg production operations. Tra
 
 ---
 
-## Current Status (as of 2026-03-15)
+## Current Status (as of 2026-03-16)
 
 ### Completed
 
-**Core Platform (IMPLEMENTATION_PLAN Phases 1-4)** — All done
-- Grower, Barn, Flock CRUD with full service layer
-- Double-entry accounting engine (chart of accounts, journal entries, quick expense, trial balance, account ledgers)
-- Egg production tracking with charting
-- Egg inventory (skids in/out/on-hand by flock and grade)
-- Egg sales with auto-generated journal entries
-- Contracts with flock assignments
-- Logistics (pickup jobs, shipments with BOL)
-- Reports (flock P&L, income statement, balance sheet)
-- Dashboard with KPIs, alerts, recent activity, global search
-- Settings page with audit log, app config, DB stats, export
+**Core Platform (IMPLEMENTATION_PLAN Phases 1-4)** — Grower/Barn/Flock CRUD, double-entry accounting engine, egg production tracking, egg inventory, egg sales, contracts, logistics, reports, dashboard, settings.
 
-**Flock Splitting & Cost Tracking (Custom)** — Done
-- Flock ID format: `[Color][Type][GrowerInitials][MMDDYY][-suffix]` (e.g., `BPjd032625`)
-- Flock types: Pullet and Layer with `bird_color` (Brown/White)
-- Pullet-to-layer splitting over multiple days with cost-per-bird inheritance
-- Layer barn merging from multiple pullet sources with weighted average cost
-- Outside pullet purchases direct to layer barn with manual cost-per-bird
-- Pullet sales with price-per-bird revenue tracking
-- FlockSource junction table tracking merge lineage
-- Flock closeout workflow (CLOSING status, remaining skids/cases tracking)
+**Flock Splitting & Cost Tracking** — Flock ID auto-generation, pullet-to-layer splitting with cost-per-bird inheritance, layer barn merging, outside purchases, pullet sales, FlockSource lineage, closeout workflow.
 
-**README Phase 1: Farm Management Merge** — Done
-- Growers & Barns merged into single "Farm Management" page
-- Grower cards expand to show barns inline with current flock info
-- Create Grower modal with nested barn array
-- Standalone /barns route removed; redirects to /growers
+**Farm Management Merge** — Growers & Barns merged into single page with expandable cards and inline barns.
 
-**README Phase 2: Flock Lifecycle Overhaul** — Done
-- Full flock detail page at `/flocks/:id` with 6 tabs
-- Tabs: Overview, Production, Mortality, Financials, Lineage, Placements
-- Age tracking (weeks old from hatch, weeks in lay)
-- Lineage tab showing parent flock and source pullet flocks with cost breakdown
-- Closeout banner and status tracking
-- Flock numbers in list are clickable links to detail page
+**Flock Lifecycle Overhaul** — Full flock detail page with 6 tabs (Overview, Production, Mortality, Financials, Lineage, Placements), age tracking, closeout banner.
 
-**README Phase 3: Production Intelligence** — Done
-- Bulk production entry form (all active layer flocks at once)
-- Breed standard curve overlay on production chart (Lohmann Brown, Hy-Line W-36, Lohmann LSL-Classic)
-- Automated production alerts (>5% drop, low production, below breed standard, mortality spikes)
-- Toggle to show/hide breed curve on chart
+**Production Intelligence** — Bulk production entry, breed standard curve overlay (Lohmann Brown, Hy-Line W-36, LSL-Classic), automated alerts, toggle breed curve.
 
-**README Phase 4: Inventory & Warehouse Enhancement** — Done
-- Inventory by flock tab (grouped by flock with barn location and grade breakdown)
-- Inventory aging tab (flags eggs >7 days, Critical/Aging/Fresh badges)
-- Inventory value calculation at contract prices
-- Inventory alerts (low stock <5 skids, aging >10 days)
+**Inventory & Warehouse Enhancement** — Inventory by flock, aging tab, value calculation, inventory alerts.
 
-**IMPL Phase 5 Partial: Recurring Expenses & Fiscal Periods** — Done
-- RecurringEntry model (weekly/biweekly/monthly/quarterly/annually)
-- Create/manage recurring expense templates with auto-generation
-- "Generate Due Entries" button processes all overdue recurring entries
-- FiscalPeriod model with auto-generation of 12 monthly periods
-- Close/reopen periods (validates no unposted entries before closing)
-- New Accounting tabs: Recurring, Fiscal Periods
+**Recurring Expenses & Fiscal Periods** — RecurringEntry model, auto-generation, FiscalPeriod close/reopen, Accounting tabs.
 
----
+**Logistics & Delivery Enhancement** — Driver management, carrier management, pickup scheduling calendar (week/month), BOL PDF generation (reportlab), delivery confirmation with proof-of-delivery, return/rejection handling with inventory re-entry, freight cost tracking. Six logistics tabs.
 
-### Remaining Work
+**Contract & Sales Intelligence** — Dedicated /contracts page with dashboard (fulfillment progress bars), contract P&L modal, buyer management, price history tracking, contract renewal alerts (30/60/90 days), spot sale tracking, volume commitment tracking.
 
-#### README Enhancement Phases
+**Reporting & Analytics Engine** — Reports page with 7 tabs, grower performance scorecard, farm-wide P&L (monthly/quarterly/yearly with bar charts), cost per dozen trend analysis (line charts), flock comparison report (ranked by profitability), CSV export for all reports.
 
-**Phase 5: Logistics & Delivery Enhancement** — Not started
-- Driver management (driver profiles, phone, truck info)
-- Route optimization (group pickups by geographic proximity)
-- Pickup scheduling calendar view (weekly/monthly)
-- BOL print template (PDF generation with farm logo, line items, signatures)
-- Shipment tracking with delivery confirmation and proof-of-delivery
-- Return/rejection handling (eggs returned from buyer, re-enter inventory)
-- Carrier rate tracking and freight cost per shipment
+**Feed & Input Tracking** — Dedicated /feed page with 6 tabs: feed inventory, feed tickets, feed conversion (lbs/dozen), medication inventory with reorder alerts, medication administration log, vendor management, purchase orders with status workflow.
 
-**Phase 6: Contract & Sales Intelligence** — Not started
-- Contract dashboard with fulfillment progress bars (shipped vs committed)
-- Contract P&L (revenue vs costs per contract)
-- Price history tracking per buyer
-- Contract renewal alerts (30/60/90 days before expiry)
-- Spot sale tracking (non-contract sales)
-- Buyer management page
-- Volume commitment tracking
+**User Management & Workflow** — JWT authentication with login page, user roles (Owner/Manager/Driver/Grower), notification center with bell icon, audit trail with user attribution, activity feed per entity, mobile-responsive sidebar with hamburger menu.
 
-**Phase 7: Reporting & Analytics Engine** — Not started
-- Dashboard redesign with customizable widgets
-- Grower performance scorecard
-- Farm-wide P&L by month/quarter/year
-- Cost per dozen trend analysis
-- Flock comparison report (rank by profitability)
-- PDF/CSV export for all reports
-- Scheduled report generation
+**Integration & Polish** — CSV data import (growers, production), JSON backup download, dark/light theme toggle (persists to localStorage), loading spinner, CSS animations, import data tab in settings.
 
-**Phase 8: Feed & Input Tracking** — Not started
-- Feed inventory management (tons on hand, deliveries, usage)
-- Feed ticket entry (delivery tickets from feed mill)
-- Auto-calculate feed conversion (actual feed vs eggs produced)
-- Feed cost per ton tracking
-- Medication/vaccine inventory and administration tracking
-- Supply vendor management
-- Purchase order creation
+**Accounting Phase 1: AP & AR** — Done
+- Bills (AP) with due date tracking, partial payment support, payment method (check/ACH/wire/cash/CC)
+- Customer invoices (AR) with auto-generation from shipments, payment recording
+- AP/AR aging reports (current/30/60/90/120+ day buckets with color-coded totals)
+- Grower payment calculator (outstanding bills per grower)
+- Bank account tracking (checking/savings/money market with balances)
+- 5 new Accounting tabs: Bills (AP), Invoices (AR), AP/AR Aging, Bank Accounts, Grower Payments
 
-**Phase 9: User Management & Workflow** — Not started
-- JWT authentication (login, logout, password reset)
-- Role-based access: Owner, Manager, Driver, Grower
-- Approval workflows (expenses over threshold)
-- Audit trail with user attribution
-- Mobile-responsive optimization
-- Notification center
-- Activity feed per entity
+**Accounting Phase 2: Budgeting & Cost Analysis** — Done
+- Budget creation (annual by category with auto-distributed monthly amounts)
+- Budget vs actual variance reports (by category by month, with year selector)
+- Cost center tracking (expenses by flock and by grower)
+- Depreciation schedules (straight-line, book value calculation, months elapsed)
+- Break-even analysis (cost/doz vs revenue/doz, break-even dozens, profitability indicator)
+- Margin analysis per contract (revenue, freight, net revenue, margin %)
+- Cash flow statement (receipts vs disbursements by month with bar chart)
+- Financial dashboard KPIs (revenue/expenses YTD, profit margin, cost/dozen, revenue/dozen)
+- 8 new Accounting tabs: Budgets, Variance, Cost Centers, Depreciation, Break-Even, Margins, Cash Flow, KPIs
 
-**Phase 10: Integration & Polish** — Not started
-- Data import tools (CSV/Excel upload)
-- Backup/restore with scheduled auto-backup
-- Dark/light theme toggle
-- Loading states, empty states, animations
-- Keyboard shortcuts
-- Performance optimization (pagination, lazy loading)
-- Onboarding wizard
-
-#### Accounting Expansion Phases
-
-**Accounting Phase 1: AP & AR** — Not started
-- Vendor management with payment terms
-- Bills/invoices received with due date tracking
-- Bill payment tracking (partial payments, payment methods)
-- Customer invoices auto-generated from shipments
-- AP/AR aging reports (30/60/90/120 day buckets)
-- Grower payment calculator
-- Bank account tracking and reconciliation
-
-**Accounting Phase 2: Budgeting & Cost Analysis** — Not started
-- Budget creation (annual by category with monthly breakdown)
-- Budget vs actual variance reports
-- Cost center tracking (per flock, per barn, per grower)
-- Depreciation schedules
-- Break-even analysis
-- Margin analysis per contract/flock/grade
-- Cash flow statement
-- Financial dashboard KPIs
-
-**Accounting Phase 3: Advanced & Compliance** — Not started
-- Multi-period closing with year-end closing entries
-- Retained earnings auto-calculation
-- Tax preparation support (Schedule F)
-- 1099 tracking
-- Financial statement comparison (period over period)
-- Ratio analysis
-- Audit preparation exports
-- QuickBooks/Xero integration-ready exports
+**Accounting Phase 3: Advanced & Compliance** — Done
+- Year-end closing preview (revenue/expense totals, net income to retained earnings)
+- Retained earnings auto-calculation (cumulative prior-year net income)
+- Tax preparation support: Schedule F (farm income/expenses by category, net farm profit)
+- 1099 tracking (vendors paid >= $600 threshold, payment counts)
+- Financial statement comparison (period-over-period with % change for revenue, expenses, production)
+- Ratio analysis (profit margin, expense ratio, current ratio, debt-to-equity, ROA)
+- Audit preparation export (combined Schedule F + retained earnings + ratios + 1099 report)
+- QuickBooks/Xero integration-ready CSV export (journal entries in QB-compatible format)
+- 7 new Accounting tabs: Schedule F, 1099, Retained Earnings, Year-End Close, Compare Periods, Ratios, QB Export
 
 ---
 
@@ -171,6 +80,6 @@ Poultry farm management & accounting software for egg production operations. Tra
 
 5. **Flock closeout workflow** — When a layer flock is sold, user enters remaining egg inventory (skids/cases). System tracks until last skid is sold, then notifies for final report.
 
-6. **Glass UI theme** — Dark background with translucent, blurred cards and subtle blue glow accents. All dropdowns use react-select with custom dark glass styling.
+6. **Glass UI theme** — Dark background with translucent, blurred cards and subtle blue glow accents. Light mode available via toggle. All dropdowns use react-select with custom styling.
 
 7. **SQLite for simplicity** — Single-file database, no server setup. Upgradeable to PostgreSQL by changing one config line.

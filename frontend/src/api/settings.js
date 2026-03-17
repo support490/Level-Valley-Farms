@@ -5,3 +5,11 @@ export const updateSettings = (data) => api.put('/settings/app', data)
 export const getAuditLog = (params = {}) => api.get('/settings/audit-log', { params })
 export const getDbStats = () => api.get('/settings/db-stats')
 export const exportData = () => api.get('/settings/export')
+export const downloadBackup = () => api.get('/settings/backup', { responseType: 'blob' })
+export const importCsv = (file, entityType) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return api.post(`/settings/import/csv?entity_type=${entityType}`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}

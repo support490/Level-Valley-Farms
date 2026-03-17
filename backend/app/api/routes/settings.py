@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from typing import List, Optional
 import json
+import csv
+from io import StringIO, BytesIO
 from datetime import datetime, timezone
 
 from app.db.database import get_db
@@ -174,3 +177,147 @@ async def _log_action(db: AsyncSession, action: str, entity_type: str, entity_id
         details=details,
     )
     db.add(log)
+
+
+# ── CSV Import ──
+
+@router.post("/import/csv")
+async def import_csv(
+    file: UploadFile = File(...),
+    entity_type: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import data from CSV. Supports: growers, flocks, production."""
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="File must be a CSV")
+
+    content = await file.read()
+    text = content.decode('utf-8')
+    reader = csv.DictReader(StringIO(text))
+    rows = list(reader)
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="CSV file is empty")
+
+    imported = 0
+    errors = []
+
+    if entity_type == "growers":
+        for i, row in enumerate(rows):
+            try:
+                name = row.get('name', '').strip()
+                if not name:
+                    errors.append(f"Row {i+1}: name is required")
+                    continue
+                grower = Grower(
+                    name=name,
+                    location=row.get('location', '').strip() or 'Unknown',
+                    contact_name=row.get('contact_name', '').strip() or None,
+                    contact_phone=row.get('contact_phone', row.get('phone', '')).strip() or None,
+                    contact_email=row.get('contact_email', row.get('email', '')).strip() or None,
+                    notes=row.get('notes', '').strip() or None,
+                )
+                db.add(grower)
+                imported += 1
+            except Exception as e:
+                errors.append(f"Row {i+1}: {str(e)}")
+
+    elif entity_type == "production":
+        for i, row in enumerate(rows):
+            try:
+                flock_number = row.get('flock_number', '').strip()
+                if not flock_number:
+                    errors.append(f"Row {i+1}: flock_number required")
+                    continue
+                result = await db.execute(
+                    select(Flock).where(Flock.flock_number == flock_number)
+                )
+                flock = result.scalar_one_or_none()
+                if not flock:
+                    errors.append(f"Row {i+1}: flock '{flock_number}' not found")
+                    continue
+                bird_count = int(row.get('bird_count', 0))
+                egg_count = int(row.get('egg_count', 0))
+                prod_pct = round((egg_count / bird_count * 100), 2) if bird_count > 0 else 0
+                record = ProductionRecord(
+                    flock_id=flock.id,
+                    record_date=row.get('record_date', row.get('date', '')).strip(),
+                    bird_count=bird_count,
+                    egg_count=egg_count,
+                    production_pct=prod_pct,
+                    cracked=int(row.get('cracked', 0)),
+                    floor_eggs=int(row.get('floor_eggs', 0)),
+                )
+                db.add(record)
+                imported += 1
+            except Exception as e:
+                errors.append(f"Row {i+1}: {str(e)}")
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported entity type: {entity_type}. Use: growers, production")
+
+    if imported > 0:
+        await _log_action(db, "import", entity_type, None,
+                          f"CSV import: {imported} {entity_type} imported from {file.filename}")
+        await db.commit()
+
+    return {
+        "imported": imported,
+        "errors": errors,
+        "total_rows": len(rows),
+    }
+
+
+# ── Backup Download ──
+
+@router.get("/backup")
+async def download_backup(db: AsyncSession = Depends(get_db)):
+    """Download full database as JSON backup file."""
+    # Reuse existing export logic
+    data = {}
+
+    result = await db.execute(select(Grower))
+    data["growers"] = [{c.key: getattr(g, c.key) for c in g.__table__.columns} for g in result.scalars().all()]
+
+    result = await db.execute(select(Barn))
+    data["barns"] = [{c.key: getattr(b, c.key) for c in b.__table__.columns} for b in result.scalars().all()]
+
+    result = await db.execute(select(Flock))
+    flocks = []
+    for f in result.scalars().all():
+        d = {c.key: getattr(f, c.key) for c in f.__table__.columns}
+        d["status"] = d["status"].value if hasattr(d["status"], "value") else d["status"]
+        flocks.append(d)
+    data["flocks"] = flocks
+
+    result = await db.execute(select(Account))
+    accounts = []
+    for a in result.scalars().all():
+        d = {c.key: getattr(a, c.key) for c in a.__table__.columns}
+        d["account_type"] = d["account_type"].value if hasattr(d["account_type"], "value") else d["account_type"]
+        d["balance"] = float(d["balance"])
+        accounts.append(d)
+    data["accounts"] = accounts
+
+    result = await db.execute(select(JournalEntry))
+    entries = []
+    for je in result.scalars().all():
+        d = {c.key: getattr(je, c.key) for c in je.__table__.columns}
+        d["expense_category"] = d["expense_category"].value if hasattr(d.get("expense_category"), "value") else d.get("expense_category")
+        entries.append(d)
+    data["journal_entries"] = entries
+
+    # Serialize datetime objects
+    def default_serializer(obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return str(obj)
+
+    json_bytes = json.dumps(data, indent=2, default=default_serializer).encode('utf-8')
+    filename = f"lvf-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+
+    return StreamingResponse(
+        iter([json_bytes]),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

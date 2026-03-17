@@ -1,15 +1,86 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 
 from app.db.database import get_db
 from app.schemas.contracts import (
     EggContractCreate, EggContractUpdate, EggContractResponse, ContractAssignmentCreate,
+    BuyerCreate, BuyerUpdate, BuyerResponse,
+    ContractDashboardItem, ContractPnL, PriceHistoryEntry, ContractAlert,
 )
 from app.services import contract_service
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 
+
+# ── Buyers ──
+
+@router.get("/buyers", response_model=List[BuyerResponse])
+async def list_buyers(
+    active_only: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+):
+    return await contract_service.get_all_buyers(db, active_only)
+
+
+@router.get("/buyers/{buyer_id}", response_model=BuyerResponse)
+async def get_buyer(buyer_id: str, db: AsyncSession = Depends(get_db)):
+    buyer = await contract_service.get_buyer(db, buyer_id)
+    if not buyer:
+        raise HTTPException(status_code=404, detail="Buyer not found")
+    return buyer
+
+
+@router.post("/buyers", response_model=BuyerResponse, status_code=201)
+async def create_buyer(data: BuyerCreate, db: AsyncSession = Depends(get_db)):
+    try:
+        return await contract_service.create_buyer(db, data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/buyers/{buyer_id}", response_model=BuyerResponse)
+async def update_buyer(buyer_id: str, data: BuyerUpdate, db: AsyncSession = Depends(get_db)):
+    result = await contract_service.update_buyer(db, buyer_id, data)
+    if not result:
+        raise HTTPException(status_code=404, detail="Buyer not found")
+    return result
+
+
+# ── Contract Intelligence ──
+
+@router.get("/dashboard", response_model=List[ContractDashboardItem])
+async def contract_dashboard(db: AsyncSession = Depends(get_db)):
+    return await contract_service.get_contract_dashboard(db)
+
+
+@router.get("/alerts", response_model=List[ContractAlert])
+async def contract_alerts(db: AsyncSession = Depends(get_db)):
+    return await contract_service.get_contract_alerts(db)
+
+
+@router.get("/price-history", response_model=List[PriceHistoryEntry])
+async def price_history(
+    buyer: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    return await contract_service.get_price_history(db, buyer)
+
+
+@router.get("/spot-sales")
+async def spot_sales(db: AsyncSession = Depends(get_db)):
+    return await contract_service.get_spot_sales(db)
+
+
+@router.get("/{contract_id}/pnl", response_model=ContractPnL)
+async def contract_pnl(contract_id: str, db: AsyncSession = Depends(get_db)):
+    result = await contract_service.get_contract_pnl(db, contract_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    return result
+
+
+# ── Contract CRUD ──
 
 @router.get("", response_model=List[EggContractResponse])
 async def list_contracts(

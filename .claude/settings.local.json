@@ -4,7 +4,9 @@
       "Bash(cd:*)",
       "Bash(curl:*)",
       "Bash(netstat:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(pip3 install:*)",
+      "Bash(python3:*)"
     ]
   }
 }

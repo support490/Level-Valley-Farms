@@ -86,4 +86,77 @@
   .stat-glow:hover::before {
     @apply opacity-100;
   }
+
+  /* Animations */
+  .fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .slide-up {
+    animation: slideUp 0.25s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Skeleton loading */
+  .skeleton {
+    @apply bg-lvf-border/30 rounded-lg animate-pulse;
+  }
+}
+
+/* ── Light Theme ── */
+[data-theme="light"] body {
+  @apply bg-gray-50 text-gray-900;
+}
+
+[data-theme="light"] .glass-card {
+  @apply bg-white/80 border-gray-200 shadow-sm;
+  background: linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(249,250,251,0.8) 100%);
+  backdrop-filter: blur(10px);
+}
+
+[data-theme="light"] .glass-card:hover {
+  @apply shadow-md;
+}
+
+[data-theme="light"] .glass-input {
+  @apply bg-white border-gray-300 text-gray-900 placeholder-gray-400
+         focus:border-blue-400 focus:ring-1 focus:ring-blue-200;
+}
+
+[data-theme="light"] .glass-sidebar {
+  @apply bg-white border-gray-200;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(249,250,251,0.98) 100%);
+}
+
+[data-theme="light"] .glass-table th {
+  @apply bg-gray-50 text-gray-600 border-gray-200;
+}
+
+[data-theme="light"] .glass-table td {
+  @apply text-gray-700 border-gray-100;
+}
+
+[data-theme="light"] .glass-table tr:hover td {
+  @apply bg-blue-50/50;
+}
+
+[data-theme="light"] .glass-button-primary {
+  @apply bg-blue-500 border-blue-500 text-white hover:bg-blue-600;
+}
+
+[data-theme="light"] .glass-button-secondary {
+  @apply bg-gray-100 border-gray-200 text-gray-700 hover:bg-gray-200;
+}
+
+[data-theme="light"] .glass-button-danger {
+  @apply bg-red-500/10 border-red-300 text-red-600 hover:bg-red-500/20;
 }

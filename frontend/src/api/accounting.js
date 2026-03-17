@@ -40,3 +40,52 @@ export const closeFiscalPeriod = (id) => api.post(`/accounting/fiscal-periods/${
 export const reopenFiscalPeriod = (id) => api.post(`/accounting/fiscal-periods/${id}/reopen`)
 export const generateFiscalPeriods = (year, startMonth = 1) =>
   api.post(`/accounting/fiscal-periods/generate?year=${year}&start_month=${startMonth}`)
+
+// AP - Bills
+export const getBills = (params = {}) => api.get('/accounting/bills', { params })
+export const createBill = (data) => api.post('/accounting/bills', data)
+export const payBill = (id, data) => api.post(`/accounting/bills/${id}/pay`, data)
+
+// AR - Invoices
+export const getInvoices = (params = {}) => api.get('/accounting/invoices', { params })
+export const createInvoice = (data) => api.post('/accounting/invoices', data)
+export const invoiceFromShipment = (shipmentId, dueDays = 30) =>
+  api.post(`/accounting/invoices/from-shipment/${shipmentId}?due_days=${dueDays}`)
+export const payInvoice = (id, data) => api.post(`/accounting/invoices/${id}/pay`, data)
+
+// Aging
+export const getAPAging = () => api.get('/accounting/aging/ap')
+export const getARAging = () => api.get('/accounting/aging/ar')
+
+// Bank Accounts
+export const getBankAccounts = () => api.get('/accounting/bank-accounts')
+export const createBankAccount = (data) => api.post('/accounting/bank-accounts', data)
+export const updateBankAccount = (id, data) => api.put(`/accounting/bank-accounts/${id}`, data)
+
+// Grower Payments
+export const getGrowerPayments = () => api.get('/accounting/grower-payments')
+
+// Budgets
+export const getBudgets = (params = {}) => api.get('/accounting/budgets', { params })
+export const createBudget = (data) => api.post('/accounting/budgets', data)
+export const getBudgetVariance = (year) => api.get('/accounting/budget-variance', { params: { year } })
+
+// Cost Analysis
+export const getCostCenters = () => api.get('/accounting/cost-centers')
+export const getDepreciation = () => api.get('/accounting/depreciation')
+export const createDepreciation = (data) => api.post('/accounting/depreciation', data)
+export const getBreakEven = () => api.get('/accounting/break-even')
+export const getMarginAnalysis = () => api.get('/accounting/margin-analysis')
+export const getCashFlow = (params = {}) => api.get('/accounting/cash-flow', { params })
+export const getFinancialKPIs = () => api.get('/accounting/financial-kpis')
+
+// Compliance
+export const getYearEndClose = (year) => api.get('/accounting/year-end-close', { params: { year } })
+export const getRetainedEarnings = () => api.get('/accounting/retained-earnings')
+export const getScheduleF = (year) => api.get('/accounting/schedule-f', { params: { year } })
+export const get1099Report = (year) => api.get('/accounting/1099-report', { params: { year } })
+export const getPeriodComparison = (p1Start, p1End, p2Start, p2End) =>
+  api.get('/accounting/period-comparison', { params: { p1_start: p1Start, p1_end: p1End, p2_start: p2Start, p2_end: p2End } })
+export const getRatioAnalysis = () => api.get('/accounting/ratio-analysis')
+export const getAuditExport = (year) => api.get('/accounting/audit-export', { params: { year } })
+export const exportQuickBooks = (year) => api.get('/accounting/export/quickbooks', { params: { year }, responseType: 'blob' })

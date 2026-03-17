@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from datetime import date
+from io import StringIO
 
 from app.db.database import get_db
 from app.schemas.reports import FlockReportResponse, IncomeStatementResponse, BalanceSheetResponse
@@ -35,3 +37,63 @@ async def balance_sheet(
     if not as_of_date:
         as_of_date = date.today().isoformat()
     return await report_service.get_balance_sheet(db, as_of_date)
+
+
+# ── Analytics ──
+
+@router.get("/grower-scorecard")
+async def grower_scorecard(db: AsyncSession = Depends(get_db)):
+    return await report_service.get_grower_scorecard(db)
+
+
+@router.get("/farm-pnl")
+async def farm_pnl(
+    period: str = Query("monthly", pattern="^(monthly|quarterly|yearly)$"),
+    year: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    return await report_service.get_farm_pnl(db, period, year)
+
+
+@router.get("/cost-per-dozen")
+async def cost_per_dozen(
+    months: int = Query(12, ge=1, le=36),
+    db: AsyncSession = Depends(get_db),
+):
+    return await report_service.get_cost_per_dozen_trend(db, months)
+
+
+@router.get("/flock-comparison")
+async def flock_comparison(db: AsyncSession = Depends(get_db)):
+    return await report_service.get_flock_comparison(db)
+
+
+# ── CSV Export ──
+
+@router.get("/export/csv/{report_type}")
+async def export_csv(
+    report_type: str,
+    period: str = Query("monthly"),
+    year: Optional[int] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    valid_types = ["flock-comparison", "grower-scorecard", "farm-pnl", "cost-per-dozen", "income-statement"]
+    if report_type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"Invalid report type. Must be one of: {valid_types}")
+
+    try:
+        csv_content = await report_service.export_report_csv(
+            db, report_type, period=period, year=year,
+            date_from=date_from or "2020-01-01",
+            date_to=date_to or date.today().isoformat(),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={report_type}-{date.today().isoformat()}.csv"}
+    )

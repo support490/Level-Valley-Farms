@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Plus, ShoppingCart, Package, Trash2, FileText, UserPlus, X, AlertTriangle, Clock, DollarSign } from 'lucide-react'
+import { Plus, ShoppingCart, Package, Trash2, AlertTriangle, Clock, DollarSign } from 'lucide-react'
 import { addInventory, getInventory, getInventorySummary, recordSale, getSales, getEggGrades, createEggGrade, deleteEggGrade, getInventoryByFlock, getInventoryAging, getInventoryValue, getInventoryAlerts } from '../api/inventory'
 import { getFlocks } from '../api/flocks'
-import { getContracts, createContract, deleteContract, assignFlockToContract, unassignFlockFromContract } from '../api/contracts'
 import SearchSelect from '../components/common/SearchSelect'
 import Modal from '../components/common/Modal'
 import ConfirmDialog from '../components/common/ConfirmDialog'
@@ -26,10 +25,6 @@ export default function Inventory() {
   const [aging, setAging] = useState([])
   const [invValue, setInvValue] = useState(null)
   const [invAlerts, setInvAlerts] = useState([])
-  const [contracts, setContracts] = useState([])
-  const [contractOpen, setContractOpen] = useState(false)
-  const [assignOpen, setAssignOpen] = useState(false)
-  const [assignTarget, setAssignTarget] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const { toast, showToast, hideToast } = useToast()
 
@@ -45,15 +40,10 @@ export default function Inventory() {
 
   const [newGrade, setNewGrade] = useState({ label: '' })
 
-  const [contractForm, setContractForm] = useState({
-    contract_number: '', buyer: '', description: '', num_flocks: 1,
-    start_date: '', end_date: '', price_per_dozen: '', grade: '', notes: ''
-  })
-
   const load = async () => {
     try {
-      const [flocksRes, summaryRes, recordsRes, salesRes, gradesRes, contractsRes, byFlockRes, agingRes, valueRes, alertsRes] = await Promise.all([
-        getFlocks(), getInventorySummary(), getInventory(), getSales(), getEggGrades(), getContracts(),
+      const [flocksRes, summaryRes, recordsRes, salesRes, gradesRes, byFlockRes, agingRes, valueRes, alertsRes] = await Promise.all([
+        getFlocks(), getInventorySummary(), getInventory(), getSales(), getEggGrades(),
         getInventoryByFlock().catch(() => ({ data: [] })),
         getInventoryAging(7).catch(() => ({ data: [] })),
         getInventoryValue().catch(() => ({ data: null })),
@@ -63,7 +53,6 @@ export default function Inventory() {
       setSummary(summaryRes.data)
       setRecords(recordsRes.data)
       setSales(salesRes.data)
-      setContracts(contractsRes.data)
       setByFlock(byFlockRes.data)
       setAging(agingRes.data)
       setInvValue(valueRes.data)
@@ -177,67 +166,6 @@ export default function Inventory() {
     }
   }
 
-  const handleCreateContract = async (e) => {
-    e.preventDefault()
-    if (submitting) return
-    if (!contractForm.contract_number.trim() || !contractForm.buyer.trim()) {
-      showToast('Contract number and buyer are required', 'error')
-      return
-    }
-    setSubmitting(true)
-    try {
-      await createContract({
-        ...contractForm,
-        num_flocks: parseInt(contractForm.num_flocks) || 1,
-        price_per_dozen: contractForm.price_per_dozen ? parseFloat(contractForm.price_per_dozen) : null,
-        grade: contractForm.grade || null,
-        start_date: contractForm.start_date || null,
-        end_date: contractForm.end_date || null,
-      })
-      showToast('Contract created')
-      setContractOpen(false)
-      setContractForm({ contract_number: '', buyer: '', description: '', num_flocks: 1, start_date: '', end_date: '', price_per_dozen: '', grade: '', notes: '' })
-      load()
-    } catch (err) {
-      showToast(err.response?.data?.detail || 'Error creating contract', 'error')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleDeleteContract = async (contractId) => {
-    try {
-      await deleteContract(contractId)
-      showToast('Contract deactivated')
-      load()
-    } catch (err) {
-      showToast(err.response?.data?.detail || 'Error', 'error')
-    }
-  }
-
-  const handleAssignFlock = async (flockId) => {
-    if (!assignTarget) return
-    try {
-      await assignFlockToContract({ contract_id: assignTarget.id, flock_id: flockId })
-      showToast('Flock assigned to contract')
-      load()
-      setAssignOpen(false)
-      setAssignTarget(null)
-    } catch (err) {
-      showToast(err.response?.data?.detail || 'Error assigning flock', 'error')
-    }
-  }
-
-  const handleUnassignFlock = async (contractId, flockId) => {
-    try {
-      await unassignFlockFromContract(contractId, flockId)
-      showToast('Flock removed from contract')
-      load()
-    } catch (err) {
-      showToast(err.response?.data?.detail || 'Error', 'error')
-    }
-  }
-
   const totalSkids = summary.reduce((sum, s) => sum + s.total_skids_on_hand, 0)
   const totalDozens = summary.reduce((sum, s) => sum + s.total_dozens, 0)
 
@@ -321,7 +249,6 @@ export default function Inventory() {
           { id: 'aging', label: 'Aging' },
           { id: 'log', label: 'Receiving Log' },
           { id: 'sales', label: 'Sales' },
-          { id: 'contracts', label: 'Contracts' },
           { id: 'grades', label: 'Grades' },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
@@ -526,90 +453,6 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* Contracts Tab */}
-      {tab === 'contracts' && (
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-sm text-lvf-muted">Manage egg sale contracts and flock assignments</p>
-            <button onClick={() => setContractOpen(true)} className="glass-button-primary flex items-center gap-2 text-sm">
-              <Plus size={14} /> New Contract
-            </button>
-          </div>
-          <div className="space-y-4">
-            {contracts.map(c => (
-              <div key={c.id} className={`glass-card p-5 ${!c.is_active ? 'opacity-50' : ''}`}>
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <FileText size={16} className="text-lvf-accent" />
-                      <h4 className="font-semibold">{c.contract_number}</h4>
-                      {!c.is_active && <span className="px-2 py-0.5 rounded-full text-[10px] bg-lvf-danger/20 text-lvf-danger">Inactive</span>}
-                    </div>
-                    <p className="text-sm text-lvf-muted mt-1">{c.buyer}{c.description ? ` — ${c.description}` : ''}</p>
-                  </div>
-                  <div className="flex gap-1">
-                    {c.is_active && (
-                      <button onClick={() => { setAssignTarget(c); setAssignOpen(true) }}
-                        className="p-1.5 rounded-lg hover:bg-white/10" title="Assign Flock">
-                        <UserPlus size={14} className="text-lvf-accent" />
-                      </button>
-                    )}
-                    {c.is_active && (
-                      <button onClick={() => handleDeleteContract(c.id)}
-                        className="p-1.5 rounded-lg hover:bg-white/10" title="Deactivate">
-                        <Trash2 size={14} className="text-lvf-danger" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
-                  <div>
-                    <p className="text-[10px] text-lvf-muted">Flocks</p>
-                    <p className="font-medium">{c.assigned_flocks?.length || 0} / {c.num_flocks}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-lvf-muted">Price/Doz</p>
-                    <p className="font-medium">{c.price_per_dozen ? `$${c.price_per_dozen.toFixed(2)}` : '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-lvf-muted">Grade</p>
-                    <p className="font-medium">{c.grade ? gradeLabel(c.grade) : '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-lvf-muted">Start</p>
-                    <p className="font-medium">{c.start_date || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-lvf-muted">End</p>
-                    <p className="font-medium">{c.end_date || '—'}</p>
-                  </div>
-                </div>
-                {c.assigned_flocks?.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-lvf-border/30">
-                    <p className="text-[10px] text-lvf-muted mb-2">Assigned Flocks</p>
-                    <div className="flex flex-wrap gap-2">
-                      {c.assigned_flocks.map(af => (
-                        <span key={af.flock_id} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs bg-lvf-accent/10 text-lvf-accent border border-lvf-accent/20">
-                          {af.flock_number}
-                          {c.is_active && (
-                            <button onClick={() => handleUnassignFlock(c.id, af.flock_id)}
-                              className="hover:text-lvf-danger ml-1"><X size={10} /></button>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {c.notes && <p className="text-xs text-lvf-muted mt-2">{c.notes}</p>}
-              </div>
-            ))}
-            {contracts.length === 0 && (
-              <div className="glass-card p-8 text-center text-lvf-muted">No contracts yet.</div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Receive Eggs Modal */}
       <Modal isOpen={receiveOpen} onClose={() => setReceiveOpen(false)} title="Receive Eggs">
         <form onSubmit={handleReceive} className="space-y-4">
@@ -747,92 +590,6 @@ export default function Inventory() {
         message={`Remove "${deleteGradeTarget?.label}"? If this grade is in use, it will be deactivated instead of deleted.`}
       />
 
-      {/* Create Contract Modal */}
-      <Modal isOpen={contractOpen} onClose={() => setContractOpen(false)} title="New Egg Sale Contract" size="lg">
-        <form onSubmit={handleCreateContract} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Contract Number *</label>
-              <input className="glass-input w-full" required value={contractForm.contract_number}
-                placeholder="e.g. EC-2025-004"
-                onChange={e => setContractForm({ ...contractForm, contract_number: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Buyer *</label>
-              <input className="glass-input w-full" required value={contractForm.buyer}
-                placeholder="Customer name"
-                onChange={e => setContractForm({ ...contractForm, buyer: e.target.value })} />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm text-lvf-muted mb-1">Description</label>
-            <input className="glass-input w-full" value={contractForm.description}
-              placeholder="e.g. Two-flock Grade A Large contract"
-              onChange={e => setContractForm({ ...contractForm, description: e.target.value })} />
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1"># of Flocks</label>
-              <input className="glass-input w-full" type="number" min="1" value={contractForm.num_flocks}
-                onChange={e => setContractForm({ ...contractForm, num_flocks: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Price/Doz</label>
-              <input className="glass-input w-full" type="number" step="0.01" min="0" value={contractForm.price_per_dozen}
-                onChange={e => setContractForm({ ...contractForm, price_per_dozen: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Grade</label>
-              <SearchSelect options={gradeSelectOptions}
-                value={gradeSelectOptions.find(o => o.value === contractForm.grade) || null}
-                onChange={(opt) => setContractForm({ ...contractForm, grade: opt?.value || '' })}
-                placeholder="Any grade" isClearable />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Start Date</label>
-              <input className="glass-input w-full" type="date" value={contractForm.start_date}
-                onChange={e => setContractForm({ ...contractForm, start_date: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">End Date</label>
-              <input className="glass-input w-full" type="date" value={contractForm.end_date}
-                onChange={e => setContractForm({ ...contractForm, end_date: e.target.value })} />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm text-lvf-muted mb-1">Notes</label>
-            <textarea className="glass-input w-full" rows={2} value={contractForm.notes}
-              onChange={e => setContractForm({ ...contractForm, notes: e.target.value })} />
-          </div>
-          <div className="flex gap-3 justify-end pt-2">
-            <button type="button" onClick={() => setContractOpen(false)} className="glass-button-secondary">Cancel</button>
-            <button type="submit" disabled={submitting} className="glass-button-primary">{submitting ? 'Creating...' : 'Create Contract'}</button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Assign Flock to Contract Modal */}
-      <Modal isOpen={assignOpen} onClose={() => { setAssignOpen(false); setAssignTarget(null) }}
-        title={`Assign Flock to ${assignTarget?.contract_number || ''}`} size="sm">
-        <div className="space-y-3">
-          <p className="text-sm text-lvf-muted">
-            {assignTarget?.assigned_flocks?.length || 0} / {assignTarget?.num_flocks} flocks assigned
-          </p>
-          <div>
-            <label className="block text-sm text-lvf-muted mb-1">Select Flock</label>
-            <SearchSelect
-              options={flockOptions.filter(o =>
-                !assignTarget?.assigned_flocks?.some(af => af.flock_id === o.value)
-              )}
-              value={null}
-              onChange={(opt) => { if (opt) handleAssignFlock(opt.value) }}
-              placeholder="Search flocks..."
-            />
-          </div>
-        </div>
-      </Modal>
     </div>
   )
 }
