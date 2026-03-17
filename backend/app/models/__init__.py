@@ -20,4 +20,5 @@ from app.models.feed import (
 )
 from app.models.budget import Budget, BudgetLine, DepreciationSchedule, DepreciationMethod
 from app.models.auth import User, UserRole, Notification
+from app.models.equipment import Equipment, EquipmentType
 from app.models.settings import AuditLog, AppSetting

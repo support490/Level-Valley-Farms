@@ -200,6 +200,7 @@ async def create_pickup_job(db: AsyncSession, data: PickupJobCreate):
         scheduled_date=data.scheduled_date,
         driver_name=driver_name,
         driver_id=data.driver_id,
+        trailer_id=data.trailer_id,
         notes=data.notes,
     )
     db.add(job)
@@ -697,6 +698,7 @@ async def _pickup_to_dict(db: AsyncSession, job: PickupJob) -> dict:
         "scheduled_date": job.scheduled_date,
         "driver_name": job.driver_name,
         "driver_id": job.driver_id,
+        "trailer_id": job.trailer_id,
         "driver": driver_dict,
         "status": job.status.value if hasattr(job.status, 'value') else job.status,
         "completed_date": job.completed_date,

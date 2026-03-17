@@ -41,21 +41,18 @@ export default function Login() {
           )}
           <div>
             <label className="block text-sm text-lvf-muted mb-1">Username</label>
-            <input className="glass-input w-full" required value={username} placeholder="admin"
+            <input className="glass-input w-full" required value={username} placeholder="Username"
               onChange={e => setUsername(e.target.value)} autoFocus />
           </div>
           <div>
             <label className="block text-sm text-lvf-muted mb-1">Password</label>
-            <input className="glass-input w-full" type="password" required value={password} placeholder="admin"
+            <input className="glass-input w-full" type="password" required value={password} placeholder="Password"
               onChange={e => setPassword(e.target.value)} />
           </div>
           <button type="submit" disabled={submitting}
             className="glass-button-primary w-full py-3 text-center font-medium">
             {submitting ? 'Signing in...' : 'Sign In'}
           </button>
-          <p className="text-center text-xs text-lvf-muted mt-4">
-            Default: admin / admin
-          </p>
         </form>
       </div>
     </div>

@@ -71,6 +71,7 @@ class PickupJob(Base, TimestampMixin):
     scheduled_date: Mapped[str] = mapped_column(String(10), nullable=False)
     driver_name: Mapped[Optional[str]] = mapped_column(String(200))
     driver_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("drivers.id"), index=True)
+    trailer_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
     status: Mapped[PickupStatus] = mapped_column(default=PickupStatus.PENDING)
     completed_date: Mapped[Optional[str]] = mapped_column(String(10))
     notes: Mapped[Optional[str]] = mapped_column(Text)

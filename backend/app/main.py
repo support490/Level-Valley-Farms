@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.db.database import init_db
-from app.api.routes import growers, barns, flocks, accounting, production, inventory, reports, dashboard, settings as settings_routes, contracts, logistics, feed, auth, ap_ar, budget, compliance
+from app.api.routes import growers, barns, flocks, accounting, production, inventory, reports, dashboard, settings as settings_routes, contracts, logistics, feed, auth, ap_ar, budget, compliance, equipment
 from app.services.accounting_service import seed_accounts
 from app.services.inventory_service import seed_egg_grades
 from app.services.demo_service import seed_demo_data
@@ -53,6 +53,7 @@ app.include_router(ap_ar.router, prefix="/api")
 app.include_router(budget.router, prefix="/api")
 app.include_router(compliance.router, prefix="/api")
 app.include_router(feed.router, prefix="/api")
+app.include_router(equipment.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 
 

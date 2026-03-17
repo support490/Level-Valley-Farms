@@ -44,6 +44,9 @@ async def _migrate_schema(conn):
     await _add_column_if_missing(conn, "egg_contracts", "buyer_id", "VARCHAR(36) REFERENCES buyers(id)")
     await _add_column_if_missing(conn, "egg_contracts", "volume_committed_dozens", "INTEGER")
 
+    # Equipment: pickup_jobs — add trailer_id
+    await _add_column_if_missing(conn, "pickup_jobs", "trailer_id", "VARCHAR(36)")
+
 
 async def init_db():
     async with engine.begin() as conn:

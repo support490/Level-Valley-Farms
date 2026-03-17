@@ -9,6 +9,7 @@ import Production from './pages/Production'
 import Inventory from './pages/Inventory'
 import Contracts from './pages/Contracts'
 import Feed from './pages/Feed'
+import Equipment from './pages/Equipment'
 import Logistics from './pages/Logistics'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
@@ -46,6 +47,7 @@ function AppRoutes() {
         <Route path="inventory" element={<ErrorBoundary><Inventory /></ErrorBoundary>} />
         <Route path="contracts" element={<ErrorBoundary><Contracts /></ErrorBoundary>} />
         <Route path="feed" element={<ErrorBoundary><Feed /></ErrorBoundary>} />
+        <Route path="equipment" element={<ErrorBoundary><Equipment /></ErrorBoundary>} />
         <Route path="logistics" element={<ErrorBoundary><Logistics /></ErrorBoundary>} />
         <Route path="reports" element={<ErrorBoundary><Reports /></ErrorBoundary>} />
         <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />

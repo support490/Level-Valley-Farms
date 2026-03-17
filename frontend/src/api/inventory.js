@@ -12,5 +12,7 @@ export const getInventoryAging = (maxDays = 7) => api.get('/inventory/eggs/aging
 export const getInventoryValue = () => api.get('/inventory/eggs/value')
 export const getInventoryAlerts = () => api.get('/inventory/alerts')
 
+export const getBarnInventory = () => api.get('/inventory/barn-inventory')
+
 export const recordSale = (data) => api.post('/inventory/sales', data)
 export const getSales = (params = {}) => api.get('/inventory/sales', { params })

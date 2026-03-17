@@ -88,6 +88,13 @@ async def inventory_alerts(db: AsyncSession = Depends(get_db)):
     return await inventory_service.get_inventory_alerts(db)
 
 
+# ── Barn Inventory ──
+
+@router.get("/barn-inventory")
+async def barn_inventory(db: AsyncSession = Depends(get_db)):
+    return await inventory_service.get_barn_inventory(db)
+
+
 # ── Sales ──
 
 @router.post("/sales", response_model=EggSaleResponse, status_code=201)

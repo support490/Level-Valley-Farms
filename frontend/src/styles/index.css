@@ -110,6 +110,106 @@
   .skeleton {
     @apply bg-lvf-border/30 rounded-lg animate-pulse;
   }
+
+  /* ── Barn Building ── */
+  .barn-building {
+    @apply relative cursor-pointer transition-all duration-200;
+    width: 100%;
+  }
+
+  .barn-roof {
+    @apply relative text-center px-4 py-2;
+    clip-path: polygon(0% 100%, 0% 40%, 50% 0%, 100% 40%, 100% 100%);
+    background: linear-gradient(135deg, rgba(100, 160, 255, 0.15) 0%, rgba(100, 160, 255, 0.08) 100%);
+  }
+
+  .barn-roof .barn-grower-name {
+    @apply text-xs font-semibold text-lvf-accent truncate pt-3;
+  }
+
+  .barn-body {
+    @apply bg-lvf-card backdrop-blur-[20px] border border-lvf-border border-t-0 px-4 py-3;
+    background: linear-gradient(
+      135deg,
+      rgba(15, 23, 42, 0.7) 0%,
+      rgba(15, 23, 42, 0.4) 50%,
+      rgba(30, 41, 59, 0.5) 100%
+    );
+  }
+
+  .barn-building:hover .barn-body {
+    @apply border-lvf-accent/30;
+    box-shadow: 0 0 20px rgba(100, 160, 255, 0.08);
+  }
+
+  .barn-building:hover .barn-roof {
+    background: linear-gradient(135deg, rgba(100, 160, 255, 0.25) 0%, rgba(100, 160, 255, 0.12) 100%);
+  }
+
+  .barn-door {
+    @apply absolute bottom-0 left-6 w-8 h-10 rounded-t-lg;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: none;
+  }
+
+  .barn-floor {
+    @apply h-1 rounded-b-lg;
+    background: linear-gradient(90deg, rgba(100, 160, 255, 0.2) 0%, rgba(100, 160, 255, 0.05) 100%);
+  }
+
+  .pallet-box {
+    @apply rounded-lg p-2 text-center min-w-[60px] border;
+    background: rgba(15, 23, 42, 0.6);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .pallet-box:hover {
+    border-color: rgba(100, 160, 255, 0.3);
+  }
+
+  /* ── Truck Dock ── */
+  .truck-dock {
+    @apply fixed bottom-0 left-0 right-0 z-50 border-t backdrop-blur-[30px];
+    background: linear-gradient(180deg, rgba(10, 14, 26, 0.95) 0%, rgba(6, 9, 18, 0.98) 100%);
+    border-color: rgba(100, 160, 255, 0.2);
+    box-shadow: 0 -4px 30px rgba(0, 0, 0, 0.5);
+  }
+
+  .truck-item {
+    @apply rounded-xl p-3 border border-lvf-border/50 bg-lvf-dark/60 min-w-[180px];
+  }
+
+  /* ── Capacity Bar ── */
+  .capacity-bar {
+    @apply w-full h-3 rounded-full overflow-hidden;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .capacity-fill {
+    @apply h-full rounded-full transition-all duration-300;
+  }
+
+  .capacity-fill.capacity-green {
+    background: linear-gradient(90deg, #22c55e 0%, #4ade80 100%);
+  }
+
+  .capacity-fill.capacity-yellow {
+    background: linear-gradient(90deg, #eab308 0%, #facc15 100%);
+  }
+
+  .capacity-fill.capacity-red {
+    background: linear-gradient(90deg, #ef4444 0%, #f87171 100%);
+  }
+
+  /* ── Barn Popover ── */
+  .barn-popover {
+    @apply absolute z-40 rounded-xl border border-lvf-border shadow-2xl p-4;
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(20, 30, 50, 0.95) 100%);
+    backdrop-filter: blur(20px);
+    min-width: 260px;
+  }
 }
 
 /* ── Light Theme ── */
@@ -159,4 +259,65 @@
 
 [data-theme="light"] .glass-button-danger {
   @apply bg-red-500/10 border-red-300 text-red-600 hover:bg-red-500/20;
+}
+
+[data-theme="light"] .barn-roof {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(59, 130, 246, 0.06) 100%);
+}
+
+[data-theme="light"] .barn-roof .barn-grower-name {
+  @apply text-blue-600;
+}
+
+[data-theme="light"] .barn-body {
+  @apply bg-white/90 border-gray-200;
+  background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(249,250,251,0.9) 100%);
+}
+
+[data-theme="light"] .barn-building:hover .barn-body {
+  @apply border-blue-300;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.08);
+}
+
+[data-theme="light"] .barn-building:hover .barn-roof {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.1) 100%);
+}
+
+[data-theme="light"] .barn-door {
+  background: rgba(0, 0, 0, 0.08);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .barn-floor {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.12) 0%, rgba(59, 130, 246, 0.03) 100%);
+}
+
+[data-theme="light"] .pallet-box {
+  background: rgba(249, 250, 251, 0.8);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .pallet-box:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+[data-theme="light"] .truck-dock {
+  background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(249,250,251,0.98) 100%);
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: 0 -4px 30px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .truck-item {
+  @apply border-gray-200 bg-gray-50;
+}
+
+[data-theme="light"] .barn-popover {
+  background: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(249,250,251,0.98) 100%);
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .capacity-bar {
+  background: rgba(229, 231, 235, 0.8);
+  border-color: rgba(0, 0, 0, 0.08);
 }

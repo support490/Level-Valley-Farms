@@ -4,10 +4,11 @@ from decimal import Decimal
 from typing import Optional
 
 from app.models.inventory import EggInventory, EggSale, EggGrade
-from app.models.flock import Flock, FlockStatus
-from app.models.farm import Barn, FlockPlacement, Grower
+from app.models.flock import Flock, FlockStatus, ProductionRecord
+from app.models.farm import Barn, FlockPlacement, Grower, BarnType
 from app.models.accounting import Account, JournalEntry, JournalLine, AccountType
 from app.models.contracts import EggContract, ContractFlockAssignment
+from app.models.logistics import PickupJob, PickupItem, PickupStatus
 from app.schemas.inventory import EggInventoryCreate, EggSaleCreate, EggGradeCreate
 from datetime import date as date_type, datetime
 from app.services.accounting_service import _next_entry_number
@@ -472,6 +473,89 @@ async def get_inventory_alerts(db: AsyncSession):
         })
 
     return alerts
+
+
+# ── Barn Inventory (computed) ──
+
+EGGS_PER_SKID = 10800  # 900 dozen * 12
+
+
+async def get_barn_inventory(db: AsyncSession):
+    """Compute barn-level inventory from production records minus completed pickups.
+
+    Barn inventory = net eggs from production / EGGS_PER_SKID - completed pickup skids.
+    Only includes layer barns with current placements.
+    """
+    # Query 1: Production totals per barn+flock
+    # Join flock_placements (current) → barns (layer) → growers → production_records
+    placements_result = await db.execute(
+        select(FlockPlacement).where(FlockPlacement.is_current == True)
+    )
+    placements = placements_result.scalars().all()
+
+    barn_data = {}
+    for placement in placements:
+        barn = await db.get(Barn, placement.barn_id)
+        if not barn or barn.barn_type != BarnType.LAYER:
+            continue
+
+        flock = await db.get(Flock, placement.flock_id)
+        if not flock:
+            continue
+
+        grower = await db.get(Grower, barn.grower_id)
+
+        # Sum production for this flock
+        prod_result = await db.execute(
+            select(
+                func.coalesce(func.sum(ProductionRecord.egg_count), 0),
+                func.coalesce(func.sum(ProductionRecord.cracked), 0),
+                func.coalesce(func.sum(ProductionRecord.floor_eggs), 0),
+            ).where(ProductionRecord.flock_id == flock.id)
+        )
+        row = prod_result.one()
+        total_eggs = int(row[0])
+        total_cracked = int(row[1])
+        total_floor = int(row[2])
+        net_eggs = total_eggs - total_cracked - total_floor
+
+        # Query 2: Completed pickup skids for this barn+flock
+        pickup_result = await db.execute(
+            select(func.coalesce(func.sum(PickupItem.skids_actual), 0)).where(
+                PickupItem.barn_id == barn.id,
+                PickupItem.flock_id == flock.id,
+                PickupItem.pickup_job_id.in_(
+                    select(PickupJob.id).where(PickupJob.status == PickupStatus.COMPLETED)
+                ),
+            )
+        )
+        picked_skids = int(pickup_result.scalar())
+
+        estimated_skids = round(net_eggs / EGGS_PER_SKID) if net_eggs > 0 else 0
+        available_skids = max(0, estimated_skids - picked_skids)
+
+        if available_skids <= 0:
+            continue
+
+        barn_key = barn.id
+        if barn_key not in barn_data:
+            barn_data[barn_key] = {
+                "barn_id": barn.id,
+                "barn_name": barn.name,
+                "grower_id": grower.id if grower else None,
+                "grower_name": grower.name if grower else "Unknown",
+                "flocks": [],
+                "total_estimated_skids": 0,
+            }
+
+        barn_data[barn_key]["flocks"].append({
+            "flock_id": flock.id,
+            "flock_number": flock.flock_number,
+            "estimated_skids": available_skids,
+        })
+        barn_data[barn_key]["total_estimated_skids"] += available_skids
+
+    return list(barn_data.values())
 
 
 # ── Helpers ──

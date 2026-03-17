@@ -8,7 +8,8 @@ from app.models.farm import Grower, Barn, BarnType, FlockPlacement
 from app.models.flock import Flock, FlockStatus, FlockType, BirdColor, SourceType, MortalityRecord, ProductionRecord, FlockSource
 from app.models.inventory import EggInventory, EggSale, EggGrade
 from app.models.contracts import EggContract, ContractFlockAssignment
-from app.models.logistics import PickupJob, PickupItem, PickupStatus, Shipment, ShipmentLine, ShipmentStatus
+from app.models.logistics import PickupJob, PickupItem, PickupStatus, Shipment, ShipmentLine, ShipmentStatus, Driver
+from app.models.equipment import Equipment, EquipmentType
 from app.models.accounting import Account, JournalEntry, JournalLine, ExpenseCategory
 from app.services.accounting_service import _next_entry_number
 
@@ -293,13 +294,44 @@ async def seed_demo_data(db: AsyncSession):
             db.add(JournalLine(journal_entry_id=je.id, account_id=cash_acct.id,
                                debit=Decimal("0"), credit=amount))
 
+    # ── Drivers ──
+    d1 = Driver(driver_number="DR-0001", name="Jake Miller", phone="814-555-1010",
+                license_number="PA-CDL-12345", truck_type="Freightliner M2", truck_plate="PA-EGG-101")
+    d2 = Driver(driver_number="DR-0002", name="Tom Weaver", phone="570-555-2020",
+                license_number="PA-CDL-67890", truck_type="International CV", truck_plate="PA-EGG-202")
+    db.add_all([d1, d2])
+    await db.flush()
+
+    # ── Equipment ──
+    tr1 = Equipment(equipment_number="TR-0001", name="Blue Freightliner", equipment_type=EquipmentType.TRUCK,
+                    license_plate="PA-EGG-101", notes="Primary pickup truck")
+    tr2 = Equipment(equipment_number="TR-0002", name="White International", equipment_type=EquipmentType.TRUCK,
+                    license_plate="PA-EGG-202", notes="Secondary truck")
+    tl1 = Equipment(equipment_number="TL-0001", name="Reefer Trailer A", equipment_type=EquipmentType.TRAILER,
+                    capacity_skids=26, weight_limit_lbs=Decimal("44000"), license_plate="PA-TRL-301",
+                    notes="26 skid capacity, refrigerated")
+    tl2 = Equipment(equipment_number="TL-0002", name="Reefer Trailer B", equipment_type=EquipmentType.TRAILER,
+                    capacity_skids=26, weight_limit_lbs=Decimal("44000"), license_plate="PA-TRL-302")
+    tl3 = Equipment(equipment_number="TL-0003", name="Short Trailer", equipment_type=EquipmentType.TRAILER,
+                    capacity_skids=16, weight_limit_lbs=Decimal("30000"), license_plate="PA-TRL-303",
+                    notes="Smaller trailer for single-barn runs")
+    db.add_all([tr1, tr2, tl1, tl2, tl3])
+    await db.flush()
+
+    # Hook trailer A to truck 1, trailer B parked at Miller Layer 1
+    tl1.hooked_to_id = tr1.id
+    tl2.current_barn_id = b2.id
+
     # ── Pickup Jobs ──
     pu1 = PickupJob(pickup_number="PU-000001", scheduled_date="2026-03-10",
-                    driver_name="Jake Miller", status=PickupStatus.COMPLETED, completed_date="2026-03-10")
+                    driver_name="Jake Miller", driver_id=d1.id, trailer_id=tl1.id,
+                    status=PickupStatus.COMPLETED, completed_date="2026-03-10")
     pu2 = PickupJob(pickup_number="PU-000002", scheduled_date="2026-03-12",
-                    driver_name="Jake Miller", status=PickupStatus.COMPLETED, completed_date="2026-03-12")
+                    driver_name="Jake Miller", driver_id=d1.id, trailer_id=tl1.id,
+                    status=PickupStatus.COMPLETED, completed_date="2026-03-12")
     pu3 = PickupJob(pickup_number="PU-000003", scheduled_date="2026-03-14",
-                    driver_name="Tom Weaver", status=PickupStatus.PENDING,
+                    driver_name="Tom Weaver", driver_id=d2.id,
+                    status=PickupStatus.PENDING,
                     notes="Pickup from all 3 active layer barns")
     db.add_all([pu1, pu2, pu3])
     await db.flush()

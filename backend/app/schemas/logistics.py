@@ -110,6 +110,7 @@ class PickupJobCreate(BaseModel):
     scheduled_date: str
     driver_name: Optional[str] = None
     driver_id: Optional[str] = None
+    trailer_id: Optional[str] = None
     notes: Optional[str] = None
     items: List[PickupItemCreate] = Field(..., min_length=1)
 
@@ -141,6 +142,7 @@ class PickupJobResponse(BaseModel):
     scheduled_date: str
     driver_name: Optional[str]
     driver_id: Optional[str]
+    trailer_id: Optional[str] = None
     driver: Optional[DriverResponse] = None
     status: str
     completed_date: Optional[str]

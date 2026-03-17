@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, ArrowRightLeft, Skull, Eye, Scissors, DollarSign, ShoppingCart, PackageX } from 'lucide-react'
+import { Plus, ArrowRightLeft, Skull, Eye, Scissors, DollarSign, ShoppingCart, PackageX, List, LayoutGrid } from 'lucide-react'
 import {
   getFlocks, createFlock, updateFlock, transferFlock, getFlockPlacements,
   recordMortality, splitFlock, sellPullets, purchaseOutside, initiateCloseout,
@@ -23,6 +23,7 @@ export default function Flocks() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
+  const [viewMode, setViewMode] = useState('barn')
   const [createOpen, setCreateOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
   const [splitOpen, setSplitOpen] = useState(false)
@@ -96,6 +97,13 @@ export default function Flocks() {
     (f.current_grower || '').toLowerCase().includes(search.toLowerCase()) ||
     (f.breed || '').toLowerCase().includes(search.toLowerCase())
   )
+
+  // Group filtered flocks by grower for barn view
+  const growerGroups = filtered.reduce((acc, f) => {
+    const key = f.current_grower || 'Unassigned'
+    ;(acc[key] = acc[key] || []).push(f)
+    return acc
+  }, {})
 
   // ── Handlers ──
 
@@ -287,6 +295,40 @@ export default function Flocks() {
     layer: 'bg-amber-500/20 text-amber-400',
   }
 
+  // Action buttons for a flock (reused in both views)
+  const FlockActions = ({ f, size = 13 }) => (
+    <div className="flex gap-1">
+      <button onClick={(e) => { e.stopPropagation(); openDetail(f) }} title="View Details" className="p-1.5 rounded-lg hover:bg-white/10">
+        <Eye size={size} className="text-lvf-muted" />
+      </button>
+      {f.flock_type === 'pullet' && f.status === 'active' && (
+        <>
+          <button onClick={(e) => { e.stopPropagation(); openSplit(f) }} title="Split to Layer" className="p-1.5 rounded-lg hover:bg-white/10">
+            <Scissors size={size} className="text-purple-400" />
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); openSell(f) }} title="Sell Pullets" className="p-1.5 rounded-lg hover:bg-white/10">
+            <DollarSign size={size} className="text-lvf-success" />
+          </button>
+        </>
+      )}
+      {f.flock_type === 'layer' && f.status === 'active' && (
+        <button onClick={(e) => { e.stopPropagation(); openCloseout(f) }} title="Closeout Flock" className="p-1.5 rounded-lg hover:bg-white/10">
+          <PackageX size={size} className="text-lvf-warning" />
+        </button>
+      )}
+      {f.status === 'active' && (
+        <button onClick={(e) => { e.stopPropagation(); openTransfer(f) }} title="Transfer" className="p-1.5 rounded-lg hover:bg-white/10">
+          <ArrowRightLeft size={size} className="text-lvf-accent" />
+        </button>
+      )}
+      {!['sold', 'culled'].includes(f.status) && (
+        <button onClick={(e) => { e.stopPropagation(); openMortality(f) }} title="Record Mortality" className="p-1.5 rounded-lg hover:bg-white/10">
+          <Skull size={size} className="text-lvf-warning" />
+        </button>
+      )}
+    </div>
+  )
+
   return (
     <div>
       {toast && <Toast {...toast} onClose={hideToast} />}
@@ -305,7 +347,7 @@ export default function Flocks() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="flex flex-wrap gap-3 mb-4 items-center">
         <input
           type="text" placeholder="Search flocks..."
           value={search} onChange={(e) => setSearch(e.target.value)}
@@ -331,92 +373,147 @@ export default function Flocks() {
             </button>
           ))}
         </div>
+        <div className="ml-auto flex gap-1 glass-card p-1">
+          <button onClick={() => setViewMode('barn')}
+            className={`p-2 rounded-lg transition-colors ${viewMode === 'barn' ? 'bg-lvf-accent/20 text-lvf-accent' : 'text-lvf-muted hover:text-lvf-text'}`}
+            title="Barn View">
+            <LayoutGrid size={16} />
+          </button>
+          <button onClick={() => setViewMode('list')}
+            className={`p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-lvf-accent/20 text-lvf-accent' : 'text-lvf-muted hover:text-lvf-text'}`}
+            title="List View">
+            <List size={16} />
+          </button>
+        </div>
       </div>
 
-      <div className="glass-card overflow-hidden">
-        <table className="w-full glass-table">
-          <thead>
-            <tr>
-              <th>Flock #</th>
-              <th>Type</th>
-              <th>Breed</th>
-              <th>Hatch</th>
-              <th>Birds</th>
-              <th>$/Bird</th>
-              <th>Barn</th>
-              <th>Grower</th>
-              <th>Status</th>
-              <th className="w-36"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(f => (
-              <tr key={f.id}>
-                <td className="font-semibold text-lvf-accent cursor-pointer hover:underline"
-                    onClick={() => navigate(`/flocks/${f.id}`)}>{f.flock_number}</td>
-                <td>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${typeColors[f.flock_type] || ''}`}>
-                    {f.flock_type}
-                  </span>
-                </td>
-                <td className="text-lvf-muted">{f.breed || '—'}</td>
-                <td className="text-lvf-muted">{f.hatch_date || '—'}</td>
-                <td className="font-medium">
-                  {f.current_bird_count.toLocaleString()}
-                  <span className="text-lvf-muted text-xs ml-1">/ {f.initial_bird_count.toLocaleString()}</span>
-                </td>
-                <td className="text-lvf-muted">
-                  {parseFloat(f.cost_per_bird) > 0 ? `$${parseFloat(f.cost_per_bird).toFixed(2)}` : '—'}
-                </td>
-                <td>{f.current_barn || '—'}</td>
-                <td className="text-lvf-muted">{f.current_grower || '—'}</td>
-                <td>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[f.status] || ''}`}>
-                    {f.status}
-                  </span>
-                </td>
-                <td>
-                  <div className="flex gap-1">
-                    <button onClick={() => openDetail(f)} title="View Details" className="p-1.5 rounded-lg hover:bg-white/10">
-                      <Eye size={13} className="text-lvf-muted" />
-                    </button>
-                    {f.flock_type === 'pullet' && f.status === 'active' && (
-                      <>
-                        <button onClick={() => openSplit(f)} title="Split to Layer" className="p-1.5 rounded-lg hover:bg-white/10">
-                          <Scissors size={13} className="text-purple-400" />
-                        </button>
-                        <button onClick={() => openSell(f)} title="Sell Pullets" className="p-1.5 rounded-lg hover:bg-white/10">
-                          <DollarSign size={13} className="text-lvf-success" />
-                        </button>
-                      </>
-                    )}
-                    {f.flock_type === 'layer' && f.status === 'active' && (
-                      <button onClick={() => openCloseout(f)} title="Closeout Flock" className="p-1.5 rounded-lg hover:bg-white/10">
-                        <PackageX size={13} className="text-lvf-warning" />
-                      </button>
-                    )}
-                    {f.status === 'active' && (
-                      <button onClick={() => openTransfer(f)} title="Transfer" className="p-1.5 rounded-lg hover:bg-white/10">
-                        <ArrowRightLeft size={13} className="text-lvf-accent" />
-                      </button>
-                    )}
-                    {!['sold', 'culled'].includes(f.status) && (
-                      <button onClick={() => openMortality(f)} title="Record Mortality" className="p-1.5 rounded-lg hover:bg-white/10">
-                        <Skull size={13} className="text-lvf-warning" />
-                      </button>
-                    )}
+      {/* ── Barn View ── */}
+      {viewMode === 'barn' && (
+        <div className="space-y-8">
+          {Object.entries(growerGroups).length > 0 ? Object.entries(growerGroups).map(([growerName, growerFlocks]) => (
+            <div key={growerName}>
+              <h3 className="text-sm font-semibold text-lvf-muted uppercase tracking-wider mb-3">{growerName}</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {growerFlocks.map(f => (
+                  <div key={f.id} className="barn-building" onClick={() => navigate(`/flocks/${f.id}`)}>
+                    {/* Roof */}
+                    <div className="barn-roof">
+                      <p className="barn-grower-name">{f.current_barn || growerName}</p>
+                    </div>
+                    {/* Body */}
+                    <div className="barn-body relative pb-10">
+                      {/* Flock header */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-lvf-accent cursor-pointer hover:underline"
+                          onClick={(e) => { e.stopPropagation(); navigate(`/flocks/${f.id}`) }}>
+                          {f.flock_number}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${typeColors[f.flock_type] || ''}`}>
+                            {f.flock_type}
+                          </span>
+                          <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${statusColors[f.status] || ''}`}>
+                            {f.status}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Stats */}
+                      <div className="grid grid-cols-2 gap-2 mb-3">
+                        <div className="pallet-box">
+                          <p className="text-lg font-bold leading-tight">{f.current_bird_count.toLocaleString()}</p>
+                          <p className="text-[10px] text-lvf-muted">birds</p>
+                          <p className="text-[9px] text-lvf-muted">/ {f.initial_bird_count.toLocaleString()}</p>
+                        </div>
+                        <div className="pallet-box">
+                          <p className="text-sm font-medium leading-tight">{f.breed || '—'}</p>
+                          <p className="text-[10px] text-lvf-muted">{f.bird_color || ''}</p>
+                          <p className="text-[9px] text-lvf-muted">{f.hatch_date || 'no hatch'}</p>
+                        </div>
+                      </div>
+
+                      {parseFloat(f.cost_per_bird) > 0 && (
+                        <p className="text-xs text-lvf-muted mb-2">
+                          ${parseFloat(f.cost_per_bird).toFixed(2)}/bird
+                        </p>
+                      )}
+
+                      {/* Actions */}
+                      <div className="mt-1">
+                        <FlockActions f={f} />
+                      </div>
+
+                      {/* Door */}
+                      <div className="barn-door" />
+                    </div>
+                    {/* Floor */}
+                    <div className="barn-floor" />
                   </div>
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && (
-              <tr><td colSpan={10} className="text-center py-8 text-lvf-muted">No flocks found.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                ))}
+              </div>
+            </div>
+          )) : (
+            <div className="glass-card p-12 text-center text-lvf-muted">No flocks found.</div>
+          )}
+        </div>
+      )}
 
-      {/* Create Flock Modal */}
+      {/* ── List View ── */}
+      {viewMode === 'list' && (
+        <div className="glass-card overflow-hidden">
+          <table className="w-full glass-table">
+            <thead>
+              <tr>
+                <th>Flock #</th>
+                <th>Type</th>
+                <th>Breed</th>
+                <th>Hatch</th>
+                <th>Birds</th>
+                <th>$/Bird</th>
+                <th>Barn</th>
+                <th>Grower</th>
+                <th>Status</th>
+                <th className="w-36"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(f => (
+                <tr key={f.id}>
+                  <td className="font-semibold text-lvf-accent cursor-pointer hover:underline"
+                      onClick={() => navigate(`/flocks/${f.id}`)}>{f.flock_number}</td>
+                  <td>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${typeColors[f.flock_type] || ''}`}>
+                      {f.flock_type}
+                    </span>
+                  </td>
+                  <td className="text-lvf-muted">{f.breed || '—'}</td>
+                  <td className="text-lvf-muted">{f.hatch_date || '—'}</td>
+                  <td className="font-medium">
+                    {f.current_bird_count.toLocaleString()}
+                    <span className="text-lvf-muted text-xs ml-1">/ {f.initial_bird_count.toLocaleString()}</span>
+                  </td>
+                  <td className="text-lvf-muted">
+                    {parseFloat(f.cost_per_bird) > 0 ? `$${parseFloat(f.cost_per_bird).toFixed(2)}` : '—'}
+                  </td>
+                  <td>{f.current_barn || '—'}</td>
+                  <td className="text-lvf-muted">{f.current_grower || '—'}</td>
+                  <td>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[f.status] || ''}`}>
+                      {f.status}
+                    </span>
+                  </td>
+                  <td><FlockActions f={f} /></td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr><td colSpan={10} className="text-center py-8 text-lvf-muted">No flocks found.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Create Flock Modal ── */}
       <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="New Flock" size="lg">
         <form onSubmit={handleCreate} className="space-y-4">
           <div className="grid grid-cols-3 gap-4">
@@ -496,7 +593,7 @@ export default function Flocks() {
         </form>
       </Modal>
 
-      {/* Split Flock Modal (Pullet → Layer) */}
+      {/* ── Split Flock Modal ── */}
       <Modal isOpen={splitOpen} onClose={() => setSplitOpen(false)} title={`Split Pullet Flock ${selectedFlock?.flock_number || ''}`} size="lg">
         {selectedFlock && (
           <form onSubmit={handleSplit} className="space-y-4">
@@ -551,7 +648,7 @@ export default function Flocks() {
         )}
       </Modal>
 
-      {/* Sell Pullets Modal */}
+      {/* ── Sell Pullets Modal ── */}
       <Modal isOpen={sellOpen} onClose={() => setSellOpen(false)} title={`Sell Pullets — ${selectedFlock?.flock_number || ''}`}>
         {selectedFlock && (
           <form onSubmit={handleSellPullets} className="space-y-4">
@@ -597,7 +694,7 @@ export default function Flocks() {
         )}
       </Modal>
 
-      {/* Buy Outside Pullets Modal */}
+      {/* ── Buy Outside Pullets Modal ── */}
       <Modal isOpen={purchaseOpen} onClose={() => setPurchaseOpen(false)} title="Purchase Outside Pullets" size="lg">
         <form onSubmit={handlePurchase} className="space-y-4">
           <div className="grid grid-cols-3 gap-4">
@@ -657,7 +754,7 @@ export default function Flocks() {
         </form>
       </Modal>
 
-      {/* Closeout Modal */}
+      {/* ── Closeout Modal ── */}
       <Modal isOpen={closeoutOpen} onClose={() => setCloseoutOpen(false)} title={`Closeout Flock ${selectedFlock?.flock_number || ''}`}>
         {selectedFlock && (
           <form onSubmit={handleCloseout} className="space-y-4">
@@ -691,7 +788,7 @@ export default function Flocks() {
         )}
       </Modal>
 
-      {/* Transfer Modal */}
+      {/* ── Transfer Modal ── */}
       <Modal isOpen={transferOpen} onClose={() => setTransferOpen(false)} title={`Transfer — ${selectedFlock?.flock_number || ''}`}>
         <form onSubmit={handleTransfer} className="space-y-4">
           <div>
@@ -733,7 +830,7 @@ export default function Flocks() {
         </form>
       </Modal>
 
-      {/* Mortality Modal */}
+      {/* ── Mortality Modal ── */}
       <Modal isOpen={mortalityOpen} onClose={() => setMortalityOpen(false)} title="Record Mortality">
         <form onSubmit={handleMortality} className="space-y-4">
           <div>
@@ -779,7 +876,7 @@ export default function Flocks() {
         </form>
       </Modal>
 
-      {/* Flock Detail Modal */}
+      {/* ── Flock Detail Modal ── */}
       <Modal isOpen={detailOpen} onClose={() => setDetailOpen(false)} title={`Flock ${selectedFlock?.flock_number || ''}`} size="lg">
         {selectedFlock && (
           <div className="space-y-6">
