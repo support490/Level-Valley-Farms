@@ -13,8 +13,10 @@ import ConfirmDialog from '../common/ConfirmDialog'
 const DOZENS_PER_SKID = 900
 const LBS_PER_SKID = 37800
 
-export default function WarehouseTab({ showToast }) {
-  const [subTab, setSubTab] = useState('floor')
+const TAB_MAP = { floor: 'floor', receiving: 'log', sales: 'sales', grades: 'grades' }
+
+export default function WarehouseTab({ showToast, forceSubTab = null }) {
+  const [subTab, setSubTab] = useState(forceSubTab ? (TAB_MAP[forceSubTab] || forceSubTab) : 'floor')
   const [flocks, setFlocks] = useState([])
   const [records, setRecords] = useState([])
   const [sales, setSales] = useState([])
@@ -59,6 +61,13 @@ export default function WarehouseTab({ showToast }) {
       showToast?.('Error loading warehouse data', 'error')
     }
   }
+
+  useEffect(() => {
+    if (forceSubTab) {
+      const mapped = TAB_MAP[forceSubTab] || forceSubTab
+      if (mapped !== subTab) setSubTab(mapped)
+    }
+  }, [forceSubTab])
 
   useEffect(() => { load() }, [])
 
@@ -174,66 +183,85 @@ export default function WarehouseTab({ showToast }) {
         </button>
       </div>
 
-      {/* Sub-tabs */}
-      <div className="flex gap-1 mb-4 p-1 glass-card w-fit">
-        {[
-          { id: 'floor', label: 'Warehouse Floor' },
-          { id: 'log', label: 'Receiving Log' },
-          { id: 'sales', label: 'Sales' },
-          { id: 'grades', label: 'Grades' },
-        ].map(t => (
-          <button key={t.id} onClick={() => setSubTab(t.id)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              subTab === t.id ? 'bg-lvf-accent/20 text-lvf-accent' : 'text-lvf-muted hover:text-lvf-text hover:bg-white/5'
-            }`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* Sub-tabs (hidden when parent controls tab) */}
+      {!forceSubTab && (
+        <div className="flex gap-1 mb-4 p-1 glass-card w-fit">
+          {[
+            { id: 'floor', label: 'Warehouse Floor' },
+            { id: 'log', label: 'Receiving Log' },
+            { id: 'sales', label: 'Sales' },
+            { id: 'grades', label: 'Grades' },
+          ].map(t => (
+            <button key={t.id} onClick={() => setSubTab(t.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                subTab === t.id ? 'bg-lvf-accent/20 text-lvf-accent' : 'text-lvf-muted hover:text-lvf-text hover:bg-white/5'
+              }`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Warehouse Floor — skid cards grouped by farm */}
+      {/* Warehouse Floor — compact farm boxes with skid rectangles */}
       {subTab === 'floor' && (
-        <div className="space-y-6">
-          {Object.entries(growerGroups).length > 0 ? Object.entries(growerGroups).map(([growerName, flockItems]) => (
-            <div key={growerName}>
-              <h3 className="text-sm font-semibold text-lvf-muted uppercase tracking-wider mb-3">{growerName}</h3>
-              <div className="space-y-3">
-                {flockItems.map(f => (
-                  <div key={f.flock_id} className="glass-card p-4">
-                    <div className="flex items-center gap-3 mb-3">
-                      <span className="text-sm font-semibold text-lvf-accent">{f.flock_number}</span>
-                      <span className="text-xs text-lvf-muted">{f.barn_name}</span>
-                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
-                        f.flock_status === 'active' ? 'bg-lvf-success/20 text-lvf-success' :
-                        f.flock_status === 'closing' ? 'bg-lvf-warning/20 text-lvf-warning' :
-                        'bg-lvf-muted/20 text-lvf-muted'
-                      }`}>{f.flock_status}</span>
-                      <span className="ml-auto text-xs text-lvf-muted font-mono">{f.total_skids} skids total</span>
-                    </div>
-                    <div className="flex gap-2 flex-wrap">
-                      {f.grades.map(g => {
-                        const days = agingMap[`${f.flock_id}_${g.grade}`]
-                        const age = ageBadge(days)
-                        const weight = g.skids_on_hand * LBS_PER_SKID
-                        return (
-                          <div key={g.grade} className="rounded-xl p-3 border border-lvf-border/40 bg-lvf-dark/40 min-w-[120px]">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-[10px] text-lvf-muted">{g.grade_label}</span>
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${age.cls}`}>{age.label}</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Object.entries(growerGroups).length > 0 ? Object.entries(growerGroups).map(([growerName, flockItems]) => {
+            const farmTotalSkids = flockItems.reduce((s, f) => s + f.total_skids, 0)
+            return (
+              <div key={growerName} className="glass-card p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold">{growerName}</h3>
+                  <span className="text-xs text-lvf-muted font-mono">{farmTotalSkids} skids</span>
+                </div>
+                <div className="space-y-0">
+                  {flockItems.map((f, fi) => (
+                    <div key={f.flock_id}>
+                      {fi > 0 && <div className="border-t border-lvf-border/30 my-2" />}
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-medium text-lvf-accent">{f.flock_number}</span>
+                        <span className="text-[10px] text-lvf-muted">{f.barn_name}</span>
+                      </div>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {f.grades.map(g => {
+                          const days = agingMap[`${f.flock_id}_${g.grade}`]
+                          const age = ageBadge(days)
+                          const weight = g.skids_on_hand * LBS_PER_SKID
+                          return Array.from({ length: Math.min(g.skids_on_hand, 40) }, (_, i) => (
+                            <div key={`${g.grade}-${i}`} className="skid-rect group relative"
+                                 title={`${g.grade_label} — ${age.label} — ${(LBS_PER_SKID).toLocaleString()} lbs`}>
+                              {i === 0 && (
+                                <div className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-lvf-card"
+                                     style={{ background: days == null || days <= 7 ? '#22c55e' : days <= 14 ? '#eab308' : '#ef4444' }} />
+                              )}
                             </div>
-                            <p className="text-xl font-bold">{g.skids_on_hand}</p>
-                            <p className="text-[10px] text-lvf-muted">skids</p>
-                            <p className="text-[10px] text-lvf-muted font-mono mt-1">{weight.toLocaleString()} lbs</p>
-                          </div>
-                        )
-                      })}
+                          )).concat(
+                            g.skids_on_hand > 40 ? [
+                              <span key={`${g.grade}-overflow`} className="text-[9px] text-lvf-muted self-end">+{g.skids_on_hand - 40}</span>
+                            ] : []
+                          )
+                        })}
+                      </div>
+                      <div className="flex gap-3 mt-1.5">
+                        {f.grades.map(g => {
+                          const days = agingMap[`${f.flock_id}_${g.grade}`]
+                          const age = ageBadge(days)
+                          return (
+                            <div key={g.grade} className="flex items-center gap-1.5 text-[10px]">
+                              <span className="text-lvf-muted">{g.grade_label}:</span>
+                              <span className="font-medium">{g.skids_on_hand}</span>
+                              <span className={`px-1 py-px rounded text-[9px] font-medium ${age.cls}`}>{age.label}</span>
+                              <span className="text-lvf-muted font-mono">{(g.skids_on_hand * LBS_PER_SKID).toLocaleString()} lbs</span>
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )) : (
-            <div className="glass-card p-12 text-center text-lvf-muted">No warehouse inventory on hand.</div>
+            )
+          }) : (
+            <div className="glass-card p-12 text-center text-lvf-muted col-span-full">No warehouse inventory on hand.</div>
           )}
         </div>
       )}

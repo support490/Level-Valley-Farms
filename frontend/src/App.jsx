@@ -7,17 +7,20 @@ import FlockDetail from './pages/FlockDetail'
 import Accounting from './pages/Accounting'
 import Production from './pages/Production'
 import Inventory from './pages/Inventory'
+import WarehouseShipping from './pages/WarehouseShipping'
 import Contracts from './pages/Contracts'
 import Feed from './pages/Feed'
 import Equipment from './pages/Equipment'
 import Logistics from './pages/Logistics'
 import Reports from './pages/Reports'
+import Maps from './pages/Maps'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 import ErrorBoundary from './components/common/ErrorBoundary'
 import { AuthProvider } from './hooks/useAuth'
 import useAuth from './hooks/useAuth'
 import { ThemeProvider } from './hooks/useTheme'
+import GoogleMapsProvider from './components/common/GoogleMapsProvider'
 
 function AppRoutes() {
   const { user, loading } = useAuth()
@@ -44,12 +47,14 @@ function AppRoutes() {
         <Route path="flocks/:flockId" element={<ErrorBoundary><FlockDetail /></ErrorBoundary>} />
         <Route path="production" element={<ErrorBoundary><Production /></ErrorBoundary>} />
         <Route path="accounting" element={<ErrorBoundary><Accounting /></ErrorBoundary>} />
-        <Route path="inventory" element={<ErrorBoundary><Inventory /></ErrorBoundary>} />
+        <Route path="warehouse" element={<ErrorBoundary><WarehouseShipping /></ErrorBoundary>} />
+        <Route path="inventory" element={<Navigate to="/warehouse" replace />} />
+        <Route path="logistics" element={<Navigate to="/warehouse" replace />} />
         <Route path="contracts" element={<ErrorBoundary><Contracts /></ErrorBoundary>} />
         <Route path="feed" element={<ErrorBoundary><Feed /></ErrorBoundary>} />
         <Route path="equipment" element={<ErrorBoundary><Equipment /></ErrorBoundary>} />
-        <Route path="logistics" element={<ErrorBoundary><Logistics /></ErrorBoundary>} />
         <Route path="reports" element={<ErrorBoundary><Reports /></ErrorBoundary>} />
+        <Route path="maps" element={<ErrorBoundary><Maps /></ErrorBoundary>} />
         <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
       </Route>
     </Routes>
@@ -61,9 +66,11 @@ export default function App() {
     <BrowserRouter>
       <ErrorBoundary>
         <ThemeProvider>
-          <AuthProvider>
-            <AppRoutes />
-          </AuthProvider>
+          <GoogleMapsProvider>
+            <AuthProvider>
+              <AppRoutes />
+            </AuthProvider>
+          </GoogleMapsProvider>
         </ThemeProvider>
       </ErrorBoundary>
     </BrowserRouter>

@@ -46,6 +46,11 @@ class Vendor(Base, TimestampMixin):
     address: Mapped[Optional[str]] = mapped_column(Text)
     notes: Mapped[Optional[str]] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    fax: Mapped[Optional[str]] = mapped_column(String(50))
+    website: Mapped[Optional[str]] = mapped_column(String(200))
+    terms: Mapped[Optional[str]] = mapped_column(String(50), default="Net 30")
+    tax_id: Mapped[Optional[str]] = mapped_column(String(50))
+    is_1099: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class FeedDelivery(Base, TimestampMixin):

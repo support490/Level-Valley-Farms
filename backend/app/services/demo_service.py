@@ -31,12 +31,12 @@ async def seed_demo_data(db: AsyncSession):
     await db.flush()
 
     # ── Barns ──
-    b1 = Barn(name="Miller Pullet A", barn_type=BarnType.PULLET, bird_capacity=25000, grower_id=g1.id)
-    b2 = Barn(name="Miller Layer 1", barn_type=BarnType.LAYER, bird_capacity=50000, grower_id=g1.id)
-    b3 = Barn(name="Miller Layer 2", barn_type=BarnType.LAYER, bird_capacity=50000, grower_id=g1.id)
-    b4 = Barn(name="Weaver Pullet House", barn_type=BarnType.PULLET, bird_capacity=20000, grower_id=g2.id)
-    b5 = Barn(name="Weaver Layer East", barn_type=BarnType.LAYER, bird_capacity=40000, grower_id=g2.id)
-    b6 = Barn(name="Stoltzfus Barn 1", barn_type=BarnType.LAYER, bird_capacity=45000, grower_id=g3.id)
+    b1 = Barn(name="Miller Pullet A", barn_type=BarnType.PULLET, bird_capacity=25000, grower_id=g1.id, latitude=40.6310, longitude=-77.5700)
+    b2 = Barn(name="Miller Layer 1", barn_type=BarnType.LAYER, bird_capacity=50000, grower_id=g1.id, latitude=40.6325, longitude=-77.5680)
+    b3 = Barn(name="Miller Layer 2", barn_type=BarnType.LAYER, bird_capacity=50000, grower_id=g1.id, latitude=40.6340, longitude=-77.5660)
+    b4 = Barn(name="Weaver Pullet House", barn_type=BarnType.PULLET, bird_capacity=20000, grower_id=g2.id, latitude=40.9200, longitude=-77.0500)
+    b5 = Barn(name="Weaver Layer East", barn_type=BarnType.LAYER, bird_capacity=40000, grower_id=g2.id, latitude=40.9220, longitude=-77.0480)
+    b6 = Barn(name="Stoltzfus Barn 1", barn_type=BarnType.LAYER, bird_capacity=45000, grower_id=g3.id, latitude=40.6000, longitude=-77.7200)
     db.add_all([b1, b2, b3, b4, b5, b6])
     await db.flush()
 

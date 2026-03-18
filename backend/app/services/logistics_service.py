@@ -518,11 +518,39 @@ async def get_egg_return(db: AsyncSession, return_id: str):
 
 async def generate_bol_pdf(db: AsyncSession, shipment_id: str) -> Optional[BytesIO]:
     """Generate a Bill of Lading PDF for a shipment."""
+    from app.models.weekly_record import WeeklyProductionLog, WeeklyRecord
+
     shipment = await db.get(Shipment, shipment_id)
     if not shipment:
         return None
 
     shipment_data = await _shipment_to_dict(db, shipment)
+
+    # Compute estimated weight per line from weekly record case weights
+    for line in shipment_data['lines']:
+        avg_case_wt = 45.0  # fallback lbs/case
+        if line.get('flock_id'):
+            wt_result = await db.execute(
+                select(func.avg(WeeklyProductionLog.case_weight))
+                .join(WeeklyRecord, WeeklyProductionLog.weekly_record_id == WeeklyRecord.id)
+                .where(
+                    WeeklyRecord.flock_id == line['flock_id'],
+                    WeeklyProductionLog.case_weight.isnot(None),
+                )
+            )
+            reported_wt = wt_result.scalar_one_or_none()
+            if reported_wt:
+                avg_case_wt = float(reported_wt)
+        cases_per_skid = line['dozens_per_skid'] / 15  # ~15 dozen per case
+        line['weight_per_skid'] = round(avg_case_wt * cases_per_skid, 1)
+        line['line_weight'] = round(line['weight_per_skid'] * line['skids'], 1)
+
+    # Get carrier/driver details
+    carrier_info = None
+    if shipment.carrier_id:
+        carrier_obj = await db.get(Carrier, shipment.carrier_id)
+        if carrier_obj:
+            carrier_info = _carrier_to_dict(carrier_obj)
 
     # Use reportlab for PDF generation
     from reportlab.lib import colors
@@ -568,11 +596,31 @@ async def generate_bol_pdf(db: AsyncSession, shipment_id: str) -> Optional[Bytes
     elements.append(header_table)
     elements.append(Spacer(1, 16))
 
+    # Carrier / Driver info
+    if carrier_info or shipment_data.get('carrier'):
+        elements.append(Paragraph("Carrier / Driver", header_style))
+        carrier_rows = []
+        carrier_rows.append(["Carrier:", carrier_info['name'] if carrier_info else (shipment_data.get('carrier') or '—'), "", ""])
+        if carrier_info:
+            carrier_rows.append(["Contact:", carrier_info.get('contact_name') or '—', "Phone:", carrier_info.get('phone') or '—'])
+        carrier_table = Table(carrier_rows, colWidths=[1.2*inch, 2.3*inch, 1.2*inch, 2.3*inch])
+        carrier_table.setStyle(TableStyle([
+            ('FONT', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONT', (2, 0), (2, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        elements.append(carrier_table)
+        elements.append(Spacer(1, 8))
+
     # Line items
     elements.append(Paragraph("Shipment Lines", header_style))
-    line_header = ["#", "Flock", "Grade", "Skids", "Doz/Skid", "Total Dozens", "$/Doz", "Line Total"]
+    line_header = ["#", "Flock", "Grade", "Skids", "Doz/Skid", "Total Doz", "Est. Wt", "$/Doz", "Line Total"]
     line_data = [line_header]
+    total_weight = 0
     for i, line in enumerate(shipment_data['lines'], 1):
+        line_wt = line.get('line_weight', 0)
+        total_weight += line_wt
         line_data.append([
             str(i),
             line['flock_number'] or '—',
@@ -580,21 +628,22 @@ async def generate_bol_pdf(db: AsyncSession, shipment_id: str) -> Optional[Bytes
             str(line['skids']),
             str(line['dozens_per_skid']),
             f"{line['total_dozens']:,}",
+            f"{line_wt:,.0f} lbs",
             f"${line['price_per_dozen']:.4f}" if line['price_per_dozen'] else '—',
             f"${line['line_total']:.2f}" if line['line_total'] else '—',
         ])
 
-    line_table = Table(line_data, colWidths=[0.4*inch, 1.1*inch, 1.1*inch, 0.6*inch, 0.7*inch, 1*inch, 0.8*inch, 1*inch])
+    line_table = Table(line_data, colWidths=[0.3*inch, 0.9*inch, 0.9*inch, 0.5*inch, 0.6*inch, 0.8*inch, 0.8*inch, 0.7*inch, 0.9*inch])
     line_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONT', (0, 0), (-1, 0), 'Helvetica-Bold', 8),
-        ('FONT', (0, 1), (-1, -1), 'Helvetica', 9),
+        ('FONT', (0, 0), (-1, 0), 'Helvetica-Bold', 7),
+        ('FONT', (0, 1), (-1, -1), 'Helvetica', 8),
         ('ALIGN', (3, 0), (-1, -1), 'RIGHT'),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')]),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
     ]))
     elements.append(line_table)
     elements.append(Spacer(1, 8))
@@ -603,6 +652,7 @@ async def generate_bol_pdf(db: AsyncSession, shipment_id: str) -> Optional[Bytes
     totals_data = [
         ["", "", "Total Skids:", str(shipment_data['total_skids'])],
         ["", "", "Total Dozens:", f"{shipment_data['total_dozens']:,}"],
+        ["", "", "Est. Total Weight:", f"{total_weight:,.0f} lbs"],
         ["", "", "Total Amount:", f"${shipment_data['total_amount']:.2f}"],
     ]
     totals_table = Table(totals_data, colWidths=[2*inch, 2*inch, 1.5*inch, 1.5*inch])

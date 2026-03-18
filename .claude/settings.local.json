@@ -6,7 +6,8 @@
       "Bash(netstat:*)",
       "Bash(taskkill:*)",
       "Bash(pip3 install:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(find:*)"
     ]
   }
 }

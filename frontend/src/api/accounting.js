@@ -89,3 +89,66 @@ export const getPeriodComparison = (p1Start, p1End, p2Start, p2End) =>
 export const getRatioAnalysis = () => api.get('/accounting/ratio-analysis')
 export const getAuditExport = (year) => api.get('/accounting/audit-export', { params: { year } })
 export const exportQuickBooks = (year) => api.get('/accounting/export/quickbooks', { params: { year }, responseType: 'blob' })
+
+// QB Checks
+export const getChecks = (params = {}) => api.get('/accounting/checks', { params })
+export const createCheck = (data) => api.post('/accounting/checks', data)
+export const voidCheck = (id) => api.post(`/accounting/checks/${id}/void`)
+export const printCheck = (id, checkNumber) =>
+  api.post(`/accounting/checks/${id}/print${checkNumber ? `?check_number=${checkNumber}` : ''}`)
+
+// QB Batch Pay Bills
+export const payBillsBatch = (data) => api.post('/accounting/bills/pay-batch', data)
+
+// QB Receive Payments
+export const receivePayment = (data) => api.post('/accounting/payments/receive', data)
+
+// QB Bank Register
+export const getBankRegister = (bankAccountId) => api.get(`/accounting/bank-register/${bankAccountId}`)
+
+// QB Deposits
+export const makeDeposit = (bankAccountId, data) => api.post(`/accounting/bank-accounts/${bankAccountId}/deposit`, data)
+
+// QB Transfers
+export const transferFunds = (data) => api.post('/accounting/transfers', data)
+
+// Items CRUD
+export const getItems = () => api.get('/accounting/items')
+export const createItem = (data) => api.post('/accounting/items', data)
+export const updateItem = (id, data) => api.put(`/accounting/items/${id}`, data)
+export const deleteItem = (id) => api.delete(`/accounting/items/${id}`)
+
+// Vendors CRUD
+export const getVendors = () => api.get('/accounting/vendors')
+export const createVendor = (data) => api.post('/accounting/vendors', data)
+export const updateVendor = (id, data) => api.put(`/accounting/vendors/${id}`, data)
+export const deleteVendor = (id) => api.delete(`/accounting/vendors/${id}`)
+
+// Buyers/Customers CRUD
+export const getBuyers = () => api.get('/accounting/buyers')
+export const createBuyer = (data) => api.post('/accounting/buyers', data)
+export const updateBuyer = (id, data) => api.put(`/accounting/buyers/${id}`, data)
+export const deleteBuyer = (id) => api.delete(`/accounting/buyers/${id}`)
+
+// Estimates
+export const getEstimates = () => api.get('/accounting/estimates')
+export const createEstimate = (data) => api.post('/accounting/estimates', data)
+export const updateEstimateStatus = (id, status) => api.put(`/accounting/estimates/${id}/status`, { status })
+export const convertEstimateToInvoice = (id) => api.post(`/accounting/estimates/${id}/convert`)
+
+// Purchase Orders
+export const getPurchaseOrders = () => api.get('/accounting/purchase-orders')
+export const convertPOToBill = (poId) => api.post(`/accounting/purchase-orders/${poId}/convert-to-bill`)
+
+// Credit Memos
+export const getCreditMemos = () => api.get('/accounting/credit-memos')
+export const createCreditMemo = (data) => api.post('/accounting/credit-memos', data)
+export const applyCreditMemo = (id, invoiceId) => api.post(`/accounting/credit-memos/${id}/apply/${invoiceId}`)
+export const voidCreditMemo = (id) => api.post(`/accounting/credit-memos/${id}/void`)
+
+// Bank Reconciliation
+export const startReconciliation = (data) => api.post('/accounting/reconciliation/start', data)
+export const getReconciliation = (id) => api.get(`/accounting/reconciliation/${id}`)
+export const toggleReconciliationItem = (id, itemId) => api.put(`/accounting/reconciliation/${id}/toggle/${itemId}`)
+export const finishReconciliation = (id) => api.post(`/accounting/reconciliation/${id}/finish`)
+export const getReconciliationHistory = (bankAccountId) => api.get(`/accounting/reconciliation/history/${bankAccountId}`)

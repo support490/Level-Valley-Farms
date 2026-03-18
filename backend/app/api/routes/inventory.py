@@ -95,6 +95,38 @@ async def barn_inventory(db: AsyncSession = Depends(get_db)):
     return await inventory_service.get_barn_inventory(db)
 
 
+@router.get("/map-data")
+async def map_data(db: AsyncSession = Depends(get_db)):
+    """Return all barns with lat/lng + current flock info + barn inventory for map display."""
+    from app.services.grower_service import get_all_growers
+    growers = await get_all_growers(db)
+    barn_inv = await inventory_service.get_barn_inventory(db)
+
+    # Index barn inventory by barn_id
+    inv_by_barn = {b["barn_id"]: b for b in barn_inv}
+
+    barns = []
+    for g in growers:
+        for b in (g.get("barns") or []):
+            if b.get("latitude") is None or b.get("longitude") is None:
+                continue
+            inv = inv_by_barn.get(b["id"], {})
+            barns.append({
+                "barn_id": b["id"],
+                "barn_name": b["name"],
+                "barn_type": b["barn_type"],
+                "grower_name": g["name"],
+                "latitude": b["latitude"],
+                "longitude": b["longitude"],
+                "bird_capacity": b["bird_capacity"],
+                "current_bird_count": b["current_bird_count"],
+                "current_flock_number": b.get("current_flock_number"),
+                "current_flock_status": b.get("current_flock_status"),
+                "estimated_skids": inv.get("total_estimated_skids", 0),
+            })
+    return barns
+
+
 # ── Sales ──
 
 @router.post("/sales", response_model=EggSaleResponse, status_code=201)

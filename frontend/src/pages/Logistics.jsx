@@ -21,8 +21,8 @@ import Modal from '../components/common/Modal'
 import Toast from '../components/common/Toast'
 import useToast from '../hooks/useToast'
 
-export default function Logistics() {
-  const [tab, setTab] = useState('pickups')
+export default function Logistics({ embedded = false, activeTab: externalTab = null, showToast: externalShowToast = null }) {
+  const [tab, setTab] = useState(externalTab || 'pickups')
   const [pickups, setPickups] = useState([])
   const [shipments, setShipments] = useState([])
   const [flocks, setFlocks] = useState([])
@@ -109,6 +109,12 @@ export default function Logistics() {
       showToast('Error loading data', 'error')
     }
   }
+
+  useEffect(() => {
+    if (externalTab && externalTab !== tab) setTab(externalTab)
+  }, [externalTab])
+
+  const effectiveShowToast = externalShowToast || showToast
 
   useEffect(() => { load() }, [])
 
@@ -586,11 +592,81 @@ export default function Logistics() {
 
   return (
     <div>
-      {toast && <Toast {...toast} onClose={hideToast} />}
+      {!embedded && toast && <Toast {...toast} onClose={hideToast} />}
 
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">Logistics</h2>
-        <div className="flex gap-2">
+      {!embedded && (
+        <>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold">Logistics</h2>
+            <div className="flex gap-2">
+              {tab === 'pickups' && (
+                <button onClick={() => setCreatePickupOpen(true)} className="glass-button-primary flex items-center gap-2">
+                  <Plus size={16} /> Create Pickup Job
+                </button>
+              )}
+              {tab === 'shipments' && (
+                <button onClick={() => setCreateShipmentOpen(true)} className="glass-button-primary flex items-center gap-2">
+                  <Plus size={16} /> Create Shipment
+                </button>
+              )}
+              {tab === 'drivers' && (
+                <button onClick={() => setCreateDriverOpen(true)} className="glass-button-primary flex items-center gap-2">
+                  <Plus size={16} /> Add Driver
+                </button>
+              )}
+              {tab === 'carriers' && (
+                <button onClick={() => setCreateCarrierOpen(true)} className="glass-button-primary flex items-center gap-2">
+                  <Plus size={16} /> Add Carrier
+                </button>
+              )}
+              {tab === 'returns' && (
+                <button onClick={() => setCreateReturnOpen(true)} className="glass-button-primary flex items-center gap-2">
+                  <Plus size={16} /> Process Return
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Warehouse Summary */}
+          {summary.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <div className="glass-card stat-glow p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Package size={14} className="text-lvf-accent" />
+                  <p className="text-xs text-lvf-muted">Warehouse Total</p>
+                </div>
+                <p className="text-2xl font-bold text-lvf-accent">
+                  {summary.reduce((s, i) => s + i.total_skids_on_hand, 0).toLocaleString()}
+                </p>
+                <p className="text-[10px] text-lvf-muted">skids ({summary.reduce((s, i) => s + i.total_dozens, 0).toLocaleString()} doz)</p>
+              </div>
+              {summary.slice(0, 3).map(s => (
+                <div key={s.grade} className="glass-card p-4">
+                  <p className="text-xs text-lvf-muted">{s.grade_label}</p>
+                  <p className="text-xl font-bold">{s.total_skids_on_hand}</p>
+                  <p className="text-[10px] text-lvf-muted">{s.total_dozens.toLocaleString()} doz</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Tabs */}
+          <div className="flex gap-1 mb-4 p-1 glass-card w-fit flex-wrap">
+            {tabs.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                  tab === t.id ? 'bg-lvf-accent/20 text-lvf-accent' : 'text-lvf-muted hover:text-lvf-text hover:bg-white/5'
+                }`}>
+                <t.icon size={14} /> {t.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Embedded action buttons */}
+      {embedded && (
+        <div className="flex gap-2 mb-4">
           {tab === 'pickups' && (
             <button onClick={() => setCreatePickupOpen(true)} className="glass-button-primary flex items-center gap-2">
               <Plus size={16} /> Create Pickup Job
@@ -617,42 +693,7 @@ export default function Logistics() {
             </button>
           )}
         </div>
-      </div>
-
-      {/* Warehouse Summary */}
-      {summary.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <div className="glass-card stat-glow p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <Package size={14} className="text-lvf-accent" />
-              <p className="text-xs text-lvf-muted">Warehouse Total</p>
-            </div>
-            <p className="text-2xl font-bold text-lvf-accent">
-              {summary.reduce((s, i) => s + i.total_skids_on_hand, 0).toLocaleString()}
-            </p>
-            <p className="text-[10px] text-lvf-muted">skids ({summary.reduce((s, i) => s + i.total_dozens, 0).toLocaleString()} doz)</p>
-          </div>
-          {summary.slice(0, 3).map(s => (
-            <div key={s.grade} className="glass-card p-4">
-              <p className="text-xs text-lvf-muted">{s.grade_label}</p>
-              <p className="text-xl font-bold">{s.total_skids_on_hand}</p>
-              <p className="text-[10px] text-lvf-muted">{s.total_dozens.toLocaleString()} doz</p>
-            </div>
-          ))}
-        </div>
       )}
-
-      {/* Tabs */}
-      <div className="flex gap-1 mb-4 p-1 glass-card w-fit flex-wrap">
-        {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-              tab === t.id ? 'bg-lvf-accent/20 text-lvf-accent' : 'text-lvf-muted hover:text-lvf-text hover:bg-white/5'
-            }`}>
-            <t.icon size={14} /> {t.label}
-          </button>
-        ))}
-      </div>
 
       {/* ═══════════ PICKUP JOBS TAB ═══════════ */}
       {tab === 'pickups' && (

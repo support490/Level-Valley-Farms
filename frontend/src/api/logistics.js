@@ -28,6 +28,7 @@ export const createShipment = (data) => api.post('/logistics/shipments', data)
 export const updateShipmentStatus = (id, status) => api.put(`/logistics/shipments/${id}/status`, { status })
 export const confirmDelivery = (id, data) => api.post(`/logistics/shipments/${id}/confirm-delivery`, data)
 export const downloadBolPdf = (id) => api.get(`/logistics/shipments/${id}/bol-pdf`, { responseType: 'blob' })
+export const getBolPdfUrl = (id) => `/api/logistics/shipments/${id}/bol-pdf`
 
 // Egg Returns
 export const getReturns = (params = {}) => api.get('/logistics/returns', { params })

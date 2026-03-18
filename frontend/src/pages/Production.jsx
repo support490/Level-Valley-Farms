@@ -5,13 +5,15 @@ import {
 } from 'recharts'
 import {
   recordProduction, recordBulkProduction, getProductionChart,
-  getProductionSummary, getProductionAlerts, getBreedCurves
+  getProductionSummary, getProductionAlerts, getBreedCurves,
+  getWeeklyRecords, deleteWeeklyRecord,
 } from '../api/production'
 import { getFlocks } from '../api/flocks'
 import SearchSelect from '../components/common/SearchSelect'
 import Modal from '../components/common/Modal'
 import Toast from '../components/common/Toast'
 import useToast from '../hooks/useToast'
+import WeeklyRecordWizard from '../components/production/WeeklyRecordWizard'
 
 const CHART_COLORS = ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#818cf8', '#fb923c', '#a78bfa', '#22d3ee']
 
@@ -42,6 +44,9 @@ export default function Production() {
   const [bulkOpen, setBulkOpen] = useState(false)
   const [dateRange, setDateRange] = useState({ from: '', to: '' })
   const [submitting, setSubmitting] = useState(false)
+  const [weeklyRecords, setWeeklyRecords] = useState([])
+  const [wizardOpen, setWizardOpen] = useState(false)
+  const [editRecord, setEditRecord] = useState(null)
   const { toast, showToast, hideToast } = useToast()
 
   const [form, setForm] = useState({
@@ -63,6 +68,8 @@ export default function Production() {
     setFlocks(flocksRes.data)
     setAlerts(alertsRes.data)
     setBreedCurves(curvesRes.data.curves || {})
+
+    getWeeklyRecords().then(r => setWeeklyRecords(r.data)).catch(() => {})
   }
 
   useEffect(() => { load() }, [])
@@ -251,6 +258,9 @@ export default function Production() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold">Production</h2>
         <div className="flex gap-2">
+          <button onClick={() => setWizardOpen(true)} className="glass-button-secondary flex items-center gap-2">
+            <ClipboardList size={16} /> Weekly Record
+          </button>
           <button onClick={openBulk} className="glass-button-secondary flex items-center gap-2">
             <ClipboardList size={16} /> Bulk Entry
           </button>
@@ -516,6 +526,65 @@ export default function Production() {
           </div>
         </form>
       </Modal>
+
+      {/* Weekly Records Section */}
+      <div className="mt-8">
+        <h3 className="text-lg font-semibold mb-3">Weekly Records</h3>
+        {weeklyRecords.length > 0 ? (
+          <div className="glass-card overflow-hidden">
+            <table className="w-full glass-table">
+              <thead>
+                <tr>
+                  <th>Flock</th>
+                  <th>Date Range</th>
+                  <th>Birds</th>
+                  <th>Production %</th>
+                  <th>Eggs</th>
+                  <th>Mortality</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {weeklyRecords.map(r => (
+                  <tr key={r.id}>
+                    <td className="font-semibold text-lvf-accent">{r.flock_number || '—'}</td>
+                    <td className="text-xs">{r.start_date} — {r.end_date}</td>
+                    <td>{r.starting_bird_count?.toLocaleString()} → {r.ending_bird_count?.toLocaleString()}</td>
+                    <td className={`font-medium ${
+                      (r.percent_production || 0) >= 80 ? 'text-lvf-success' :
+                      (r.percent_production || 0) >= 60 ? 'text-lvf-warning' : 'text-lvf-danger'
+                    }`}>{r.percent_production ? `${r.percent_production}%` : '—'}</td>
+                    <td>{r.total_egg_production?.toLocaleString()}</td>
+                    <td className="text-lvf-danger">{(r.total_mortality || 0) + (r.total_culls || 0)}</td>
+                    <td>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        r.status === 'submitted' ? 'bg-lvf-success/20 text-lvf-success' : 'bg-lvf-warning/20 text-lvf-warning'
+                      }`}>{r.status}</span>
+                    </td>
+                    <td>
+                      <button onClick={() => { setEditRecord(r); setWizardOpen(true) }}
+                        className="text-xs text-lvf-accent hover:underline">View</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="glass-card p-8 text-center text-lvf-muted">No weekly records yet. Click "Weekly Record" to create one.</div>
+        )}
+      </div>
+
+      {/* Weekly Record Wizard Modal */}
+      {wizardOpen && (
+        <WeeklyRecordWizard
+          onClose={() => { setWizardOpen(false); setEditRecord(null) }}
+          onSaved={() => { load(); getWeeklyRecords().then(r => setWeeklyRecords(r.data)).catch(() => {}) }}
+          editRecord={editRecord}
+          showToast={showToast}
+        />
+      )}
     </div>
   )
 }

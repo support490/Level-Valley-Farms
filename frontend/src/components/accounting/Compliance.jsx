@@ -7,7 +7,18 @@ import {
 import Toast from '../common/Toast'
 import useToast from '../../hooks/useToast'
 
+const COMPLIANCE_TABS = [
+  { id: 'schedulef', label: 'Schedule F' },
+  { id: '1099', label: '1099 Report' },
+  { id: 'retained', label: 'Retained Earnings' },
+  { id: 'yearend', label: 'Year-End Close' },
+  { id: 'comparison', label: 'Period Comparison' },
+  { id: 'ratios', label: 'Ratio Analysis' },
+  { id: 'qbexport', label: 'QB Export' },
+]
+
 export default function Compliance({ subTab = 'schedulef' }) {
+  const [activeTab, setActiveTab] = useState(subTab)
   const [scheduleF, setScheduleF] = useState(null)
   const [report1099, setReport1099] = useState(null)
   const [retained, setRetained] = useState(null)
@@ -21,13 +32,15 @@ export default function Compliance({ subTab = 'schedulef' }) {
   })
   const { toast, showToast, hideToast } = useToast()
 
+  useEffect(() => { setActiveTab(subTab) }, [subTab])
+
   useEffect(() => {
-    if (subTab === 'schedulef') getScheduleF(year).then(r => setScheduleF(r.data)).catch(() => {})
-    if (subTab === '1099') get1099Report(year).then(r => setReport1099(r.data)).catch(() => {})
-    if (subTab === 'retained') getRetainedEarnings().then(r => setRetained(r.data)).catch(() => {})
-    if (subTab === 'ratios') getRatioAnalysis().then(r => setRatios(r.data)).catch(() => {})
-    if (subTab === 'yearend') getYearEndClose(year).then(r => setYearEnd(r.data)).catch(() => {})
-  }, [subTab, year])
+    if (activeTab === 'schedulef') getScheduleF(year).then(r => setScheduleF(r.data)).catch(() => {})
+    if (activeTab === '1099') get1099Report(year).then(r => setReport1099(r.data)).catch(() => {})
+    if (activeTab === 'retained') getRetainedEarnings().then(r => setRetained(r.data)).catch(() => {})
+    if (activeTab === 'ratios') getRatioAnalysis().then(r => setRatios(r.data)).catch(() => {})
+    if (activeTab === 'yearend') getYearEndClose(year).then(r => setYearEnd(r.data)).catch(() => {})
+  }, [activeTab, year])
 
   const loadComparison = async () => {
     try {
@@ -36,7 +49,7 @@ export default function Compliance({ subTab = 'schedulef' }) {
     } catch { showToast('Error loading comparison', 'error') }
   }
 
-  useEffect(() => { if (subTab === 'comparison') loadComparison() }, [subTab])
+  useEffect(() => { if (activeTab === 'comparison') loadComparison() }, [activeTab])
 
   const handleQBExport = async () => {
     try {
@@ -55,8 +68,21 @@ export default function Compliance({ subTab = 'schedulef' }) {
     <div>
       {toast && <Toast {...toast} onClose={hideToast} />}
 
+      {/* ── Internal Tab Bar ── */}
+      <div className="flex gap-1 px-2 mb-0" style={{ padding: '0 8px', marginBottom: 8 }}>
+        {COMPLIANCE_TABS.map(tab => (
+          <button
+            key={tab.id}
+            className={activeTab === tab.id ? 'active' : ''}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       {/* Year selector for most tabs */}
-      {['schedulef', '1099', 'yearend'].includes(subTab) && (
+      {['schedulef', '1099', 'yearend'].includes(activeTab) && (
         <div className="flex items-center gap-3 mb-4">
           <label className="text-sm text-lvf-muted">Year:</label>
           <input className="glass-input w-24" type="number" value={year} onChange={e => setYear(parseInt(e.target.value))} />
@@ -64,7 +90,7 @@ export default function Compliance({ subTab = 'schedulef' }) {
       )}
 
       {/* ═══ SCHEDULE F ═══ */}
-      {subTab === 'schedulef' && scheduleF && (
+      {activeTab === 'schedulef' && scheduleF && (
         <div className="max-w-2xl space-y-4">
           <div className="glass-card p-5">
             <h4 className="font-semibold mb-3">Schedule F — Farm Income ({scheduleF.year})</h4>
@@ -96,7 +122,7 @@ export default function Compliance({ subTab = 'schedulef' }) {
       )}
 
       {/* ═══ 1099 ═══ */}
-      {subTab === '1099' && report1099 && (
+      {activeTab === '1099' && report1099 && (
         <div className="max-w-2xl">
           <div className="glass-card p-3 mb-4 flex items-center gap-2 border-lvf-warning/30 bg-lvf-warning/5">
             <AlertTriangle size={14} className="text-lvf-warning" />
@@ -106,7 +132,7 @@ export default function Compliance({ subTab = 'schedulef' }) {
             <table className="w-full glass-table">
               <thead><tr><th>Vendor</th><th className="text-right">Total Paid</th><th className="text-right">Payments</th><th>1099 Required</th></tr></thead>
               <tbody>
-                {report1099.vendors.map(v => (
+                {(report1099.vendors || []).map(v => (
                   <tr key={v.vendor_name}>
                     <td className="font-medium">{v.vendor_name}</td>
                     <td className="text-right font-mono">${v.total_paid.toLocaleString()}</td>
@@ -114,7 +140,7 @@ export default function Compliance({ subTab = 'schedulef' }) {
                     <td>{v.requires_1099 ? <span className="px-2 py-0.5 rounded-full text-xs bg-lvf-warning/20 text-lvf-warning">Yes</span> : <span className="text-xs text-lvf-muted">No</span>}</td>
                   </tr>
                 ))}
-                {report1099.vendors.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-lvf-muted">No vendor payments this year.</td></tr>}
+                {(report1099.vendors || []).length === 0 && <tr><td colSpan={4} className="text-center py-8 text-lvf-muted">No vendor payments this year.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -122,7 +148,7 @@ export default function Compliance({ subTab = 'schedulef' }) {
       )}
 
       {/* ═══ RETAINED EARNINGS ═══ */}
-      {subTab === 'retained' && retained && (
+      {activeTab === 'retained' && retained && (
         <div className="max-w-md glass-card p-6 text-center">
           <h4 className="text-sm text-lvf-muted mb-2">Retained Earnings</h4>
           <p className={`text-3xl font-bold ${retained.retained_earnings >= 0 ? 'text-lvf-success' : 'text-lvf-danger'}`}>
@@ -133,7 +159,7 @@ export default function Compliance({ subTab = 'schedulef' }) {
       )}
 
       {/* ═══ YEAR-END CLOSE ═══ */}
-      {subTab === 'yearend' && yearEnd && (
+      {activeTab === 'yearend' && yearEnd && (
         <div className="max-w-lg glass-card p-6">
           <h4 className="font-semibold mb-4">Year-End Close — {yearEnd.year}</h4>
           <div className="space-y-3">
@@ -149,7 +175,7 @@ export default function Compliance({ subTab = 'schedulef' }) {
       )}
 
       {/* ═══ PERIOD COMPARISON ═══ */}
-      {subTab === 'comparison' && (
+      {activeTab === 'comparison' && (
         <div className="max-w-3xl">
           <div className="flex gap-4 mb-4 flex-wrap">
             <div className="glass-card p-3">
@@ -194,7 +220,7 @@ export default function Compliance({ subTab = 'schedulef' }) {
       )}
 
       {/* ═══ RATIO ANALYSIS ═══ */}
-      {subTab === 'ratios' && ratios && (
+      {activeTab === 'ratios' && ratios && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-w-3xl">
           {[
             { label: 'Profit Margin', value: `${ratios.profit_margin}%`, color: ratios.profit_margin >= 0 ? 'text-lvf-success' : 'text-lvf-danger' },
@@ -213,7 +239,7 @@ export default function Compliance({ subTab = 'schedulef' }) {
       )}
 
       {/* ═══ QB EXPORT ═══ */}
-      {subTab === 'qbexport' && (
+      {activeTab === 'qbexport' && (
         <div className="max-w-md glass-card p-6 text-center">
           <FileText size={32} className="text-lvf-accent mx-auto mb-3" />
           <h4 className="font-semibold mb-2">QuickBooks / Xero Export</h4>

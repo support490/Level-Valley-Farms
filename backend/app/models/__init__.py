@@ -4,6 +4,9 @@ from app.models.flock import Flock, FlockStatus, MortalityRecord, ProductionReco
 from app.models.accounting import (
     Account, AccountType, ExpenseCategory, JournalEntry, JournalLine,
     Bill, BillPayment, BillStatus, CustomerInvoice, InvoiceStatus, BankAccount, PaymentMethod,
+    Estimate, EstimateStatus, EstimateLineItem,
+    CreditMemo, CreditMemoStatus, CreditMemoLineItem,
+    BankReconciliation, ReconciliationStatus, ReconciliationItem,
 )
 from app.models.inventory import EggInventory, EggSale, EggGrade
 from app.models.contracts import EggContract, ContractFlockAssignment, Buyer
@@ -22,3 +25,10 @@ from app.models.budget import Budget, BudgetLine, DepreciationSchedule, Deprecia
 from app.models.auth import User, UserRole, Notification
 from app.models.equipment import Equipment, EquipmentType
 from app.models.settings import AuditLog, AppSetting
+from app.models.weekly_record import (
+    WeeklyRecord, WeeklyRecordStatus,
+    WeeklyProductionLog, WeeklyFeedLog,
+    FlyLog, RodentLog, FootBathLog, AmmoniaLog,
+    GeneratorLog, EggsShippedLog, AlarmCheckLog,
+    PitLog, CoolerTempLog,
+)

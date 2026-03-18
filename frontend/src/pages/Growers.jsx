@@ -1,8 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Plus, Pencil, Trash2, MapPin, Phone, Mail, Warehouse,
   ChevronDown, ChevronRight, Bird
 } from 'lucide-react'
+import { GoogleMap, Marker } from '@react-google-maps/api'
+import { useGoogleMaps } from '../components/common/GoogleMapsProvider'
+import AddressAutocomplete from '../components/common/AddressAutocomplete'
 import { getGrowers, createGrower, updateGrower, deleteGrower } from '../api/growers'
 import { createBarn, updateBarn, deleteBarn } from '../api/barns'
 import Modal from '../components/common/Modal'
@@ -11,7 +14,10 @@ import Toast from '../components/common/Toast'
 import useToast from '../hooks/useToast'
 
 const emptyGrowerForm = { name: '', location: '', contact_name: '', contact_phone: '', contact_email: '', notes: '', barns: [] }
-const emptyBarnForm = { name: '', barn_type: 'layer', bird_capacity: '', notes: '' }
+const emptyBarnForm = { name: '', barn_type: 'layer', bird_capacity: '', notes: '', latitude: null, longitude: null }
+
+const barnMapStyle = { width: '100%', height: '200px', borderRadius: '12px' }
+const PA_CENTER = { lat: 40.75, lng: -77.40 }
 
 export default function Growers() {
   const [growers, setGrowers] = useState([])
@@ -28,6 +34,7 @@ export default function Growers() {
   const [search, setSearch] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const { toast, showToast, hideToast } = useToast()
+  const { isLoaded: mapsLoaded } = useGoogleMaps()
 
   const load = async () => {
     const res = await getGrowers()
@@ -108,7 +115,7 @@ export default function Growers() {
   const openEditBarn = (barn, growerId) => {
     setBarnGrowerId(growerId)
     setEditingBarn(barn)
-    setBarnForm({ name: barn.name, barn_type: barn.barn_type, bird_capacity: barn.bird_capacity, notes: barn.notes || '' })
+    setBarnForm({ name: barn.name, barn_type: barn.barn_type, bird_capacity: barn.bird_capacity, notes: barn.notes || '', latitude: barn.latitude || null, longitude: barn.longitude || null })
     setBarnModalOpen(true)
   }
 
@@ -119,11 +126,12 @@ export default function Growers() {
     if (isNaN(cap) || cap <= 0) return showToast('Capacity must be positive', 'error')
     setSubmitting(true)
     try {
+      const payload = { ...barnForm, bird_capacity: cap, grower_id: barnGrowerId }
       if (editingBarn) {
-        await updateBarn(editingBarn.id, { ...barnForm, bird_capacity: cap, grower_id: barnGrowerId })
+        await updateBarn(editingBarn.id, payload)
         showToast('Barn updated')
       } else {
-        await createBarn({ ...barnForm, bird_capacity: cap, grower_id: barnGrowerId })
+        await createBarn(payload)
         showToast('Barn added')
       }
       setBarnModalOpen(false)
@@ -325,8 +333,12 @@ export default function Growers() {
             </div>
             <div>
               <label className="block text-sm text-lvf-muted mb-1">Location *</label>
-              <input className="glass-input w-full" required value={growerForm.location}
-                onChange={e => setGrowerForm({ ...growerForm, location: e.target.value })} />
+              <AddressAutocomplete
+                value={growerForm.location}
+                onChange={val => setGrowerForm({ ...growerForm, location: val })}
+                placeholder="Search address..."
+                className="glass-input w-full"
+              />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4">
@@ -431,6 +443,39 @@ export default function Growers() {
             <textarea className="glass-input w-full" rows={2} value={barnForm.notes}
               onChange={e => setBarnForm({ ...barnForm, notes: e.target.value })} />
           </div>
+
+          {/* Satellite map for pin placement */}
+          {mapsLoaded && (
+            <div>
+              <label className="block text-sm text-lvf-muted mb-1">
+                Barn Location <span className="text-xs">(click map to place pin)</span>
+              </label>
+              <GoogleMap
+                mapContainerStyle={barnMapStyle}
+                center={barnForm.latitude && barnForm.longitude
+                  ? { lat: barnForm.latitude, lng: barnForm.longitude }
+                  : PA_CENTER}
+                zoom={barnForm.latitude ? 15 : 8}
+                mapTypeId="satellite"
+                onClick={(e) => setBarnForm({ ...barnForm, latitude: e.latLng.lat(), longitude: e.latLng.lng() })}
+                options={{ streetViewControl: false, mapTypeControl: false, fullscreenControl: false }}
+              >
+                {barnForm.latitude && barnForm.longitude && (
+                  <Marker
+                    position={{ lat: barnForm.latitude, lng: barnForm.longitude }}
+                    draggable
+                    onDragEnd={(e) => setBarnForm({ ...barnForm, latitude: e.latLng.lat(), longitude: e.latLng.lng() })}
+                  />
+                )}
+              </GoogleMap>
+              {barnForm.latitude && (
+                <p className="text-[10px] text-lvf-muted mt-1">
+                  {barnForm.latitude.toFixed(5)}, {barnForm.longitude.toFixed(5)}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-3 justify-end pt-2">
             <button type="button" onClick={() => setBarnModalOpen(false)} className="glass-button-secondary">Cancel</button>
             <button type="submit" disabled={submitting} className="glass-button-primary">

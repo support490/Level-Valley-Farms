@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Warehouse, Bird, Building2,
   Receipt, Egg, BarChart3, Settings, TrendingUp, Truck, FileText, Wheat,
-  Sun, Moon, Container,
+  Sun, Moon, Container, Map,
 } from 'lucide-react'
 import useTheme from '../../hooks/useTheme'
 
@@ -12,12 +12,12 @@ const navItems = [
   { to: '/flocks', icon: Bird, label: 'Flocks' },
   { to: '/production', icon: TrendingUp, label: 'Production' },
   { to: '/accounting', icon: Receipt, label: 'Accounting' },
-  { to: '/inventory', icon: Egg, label: 'Egg Inventory' },
+  { to: '/warehouse', icon: Warehouse, label: 'Warehouse & Shipping' },
   { to: '/contracts', icon: FileText, label: 'Contracts' },
   { to: '/feed', icon: Wheat, label: 'Feed & Inputs' },
   { to: '/equipment', icon: Container, label: 'Equipment' },
-  { to: '/logistics', icon: Truck, label: 'Logistics' },
   { to: '/reports', icon: BarChart3, label: 'Reports' },
+  { to: '/maps', icon: Map, label: 'Maps' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]
 

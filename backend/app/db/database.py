@@ -47,6 +47,47 @@ async def _migrate_schema(conn):
     # Equipment: pickup_jobs — add trailer_id
     await _add_column_if_missing(conn, "pickup_jobs", "trailer_id", "VARCHAR(36)")
 
+    # Maps: barns — add latitude/longitude
+    await _add_column_if_missing(conn, "barns", "latitude", "FLOAT")
+    await _add_column_if_missing(conn, "barns", "longitude", "FLOAT")
+
+    # QB Accounting: Bill extensions
+    await _add_column_if_missing(conn, "bills", "terms", "VARCHAR(50)")
+    await _add_column_if_missing(conn, "bills", "ref_no", "VARCHAR(100)")
+    await _add_column_if_missing(conn, "bills", "discount_date", "VARCHAR(10)")
+    await _add_column_if_missing(conn, "bills", "discount_amount", "NUMERIC(12, 2)")
+
+    # QB Accounting: CustomerInvoice extensions
+    await _add_column_if_missing(conn, "customer_invoices", "ship_to_address", "TEXT")
+    await _add_column_if_missing(conn, "customer_invoices", "po_number", "VARCHAR(100)")
+    await _add_column_if_missing(conn, "customer_invoices", "terms", "VARCHAR(50)")
+    await _add_column_if_missing(conn, "customer_invoices", "ship_date", "VARCHAR(10)")
+    await _add_column_if_missing(conn, "customer_invoices", "ship_via", "VARCHAR(100)")
+    await _add_column_if_missing(conn, "customer_invoices", "customer_message", "TEXT")
+
+    # QB Accounting: BillPayment — add bank_account_id
+    await _add_column_if_missing(conn, "bill_payments", "bank_account_id", "VARCHAR(36)")
+
+    # QB Accounting: BankAccount — add linked_account_id
+    await _add_column_if_missing(conn, "bank_accounts", "linked_account_id", "VARCHAR(36)")
+
+    # QB Audit Fix: Vendor — add QB fields
+    await _add_column_if_missing(conn, "vendors", "fax", "VARCHAR(50)")
+    await _add_column_if_missing(conn, "vendors", "website", "VARCHAR(200)")
+    await _add_column_if_missing(conn, "vendors", "terms", "VARCHAR(50) DEFAULT 'Net 30'")
+    await _add_column_if_missing(conn, "vendors", "tax_id", "VARCHAR(50)")
+    await _add_column_if_missing(conn, "vendors", "is_1099", "BOOLEAN DEFAULT 0")
+
+    # Flock — add bird_weight
+    await _add_column_if_missing(conn, "flocks", "bird_weight", "FLOAT")
+
+    # QB Audit Fix: Buyer — add QB fields
+    await _add_column_if_missing(conn, "buyers", "company", "VARCHAR(200)")
+    await _add_column_if_missing(conn, "buyers", "bill_to_address", "TEXT")
+    await _add_column_if_missing(conn, "buyers", "ship_to_address", "TEXT")
+    await _add_column_if_missing(conn, "buyers", "terms", "VARCHAR(50) DEFAULT 'Net 30'")
+    await _add_column_if_missing(conn, "buyers", "credit_limit", "NUMERIC(15, 2)")
+
 
 async def init_db():
     async with engine.begin() as conn:

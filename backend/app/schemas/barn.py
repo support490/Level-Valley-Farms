@@ -9,6 +9,8 @@ class BarnCreate(BaseModel):
     bird_capacity: int = Field(..., gt=0, le=1000000)
     grower_id: str = Field(..., min_length=1)
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
     @field_validator("barn_type")
     @classmethod
@@ -34,6 +36,8 @@ class BarnUpdate(BaseModel):
     grower_id: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
     @field_validator("barn_type")
     @classmethod
@@ -53,6 +57,8 @@ class BarnResponse(BaseModel):
     grower_name: str = ""
     is_active: bool
     notes: Optional[str]
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     created_at: datetime
     updated_at: datetime
 

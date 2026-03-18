@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
-import { Save, Database, Download, History, Sliders, Upload, Users, Plus, Edit2, Trash2, Eye, EyeOff } from 'lucide-react'
+import { Save, Database, Download, History, Sliders, Upload, Users, Plus, Edit2, Trash2, Eye, EyeOff, MapPin } from 'lucide-react'
 import { getSettings, updateSettings, getAuditLog, getDbStats, exportData, downloadBackup, importCsv } from '../api/settings'
 import { getUsers, register, updateUser } from '../api/auth'
 import Toast from '../components/common/Toast'
 import Modal from '../components/common/Modal'
 import ConfirmDialog from '../components/common/ConfirmDialog'
 import useToast from '../hooks/useToast'
+import AddressAutocomplete from '../components/common/AddressAutocomplete'
+import { useGoogleMaps } from '../components/common/GoogleMapsProvider'
+import { GoogleMap, Marker } from '@react-google-maps/api'
 
 export default function Settings() {
   const [tab, setTab] = useState('general')
@@ -22,6 +25,7 @@ export default function Settings() {
   const [userForm, setUserForm] = useState({ username: '', password: '', full_name: '', email: '', role: 'manager' })
   const [editForm, setEditForm] = useState({ full_name: '', email: '', role: '', password: '' })
   const { toast, showToast, hideToast } = useToast()
+  const { isLoaded: mapsLoaded } = useGoogleMaps()
 
   const load = async () => {
     const [settingsRes, dbRes] = await Promise.all([getSettings(), getDbStats()])
@@ -241,6 +245,36 @@ export default function Settings() {
                   {cat}
                 </span>
               ))}
+            </div>
+          </div>
+
+          <div className="glass-card p-6">
+            <h3 className="font-semibold mb-2 flex items-center gap-2"><MapPin size={16} /> Warehouse Location</h3>
+            <p className="text-xs text-lvf-muted mb-4">Set warehouse address for display on the Maps page</p>
+            <div className="space-y-3">
+              <AddressAutocomplete
+                value={form.warehouse_address || ''}
+                onChange={val => setForm({ ...form, warehouse_address: val })}
+                onSelect={(address, lat, lng) => setForm({
+                  ...form,
+                  warehouse_address: address,
+                  warehouse_latitude: String(lat),
+                  warehouse_longitude: String(lng),
+                })}
+                placeholder="Search warehouse address..."
+                className="glass-input w-full"
+              />
+              {mapsLoaded && form.warehouse_latitude && form.warehouse_longitude && (
+                <GoogleMap
+                  mapContainerStyle={{ width: '100%', height: '180px', borderRadius: '12px' }}
+                  center={{ lat: parseFloat(form.warehouse_latitude), lng: parseFloat(form.warehouse_longitude) }}
+                  zoom={15}
+                  mapTypeId="satellite"
+                  options={{ streetViewControl: false, mapTypeControl: false, fullscreenControl: false }}
+                >
+                  <Marker position={{ lat: parseFloat(form.warehouse_latitude), lng: parseFloat(form.warehouse_longitude) }} />
+                </GoogleMap>
+              )}
             </div>
           </div>
         </div>

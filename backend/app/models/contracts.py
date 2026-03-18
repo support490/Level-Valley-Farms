@@ -19,6 +19,11 @@ class Buyer(Base, TimestampMixin):
     address: Mapped[Optional[str]] = mapped_column(Text)
     notes: Mapped[Optional[str]] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    company: Mapped[Optional[str]] = mapped_column(String(200))
+    bill_to_address: Mapped[Optional[str]] = mapped_column(Text)
+    ship_to_address: Mapped[Optional[str]] = mapped_column(Text)
+    terms: Mapped[Optional[str]] = mapped_column(String(50), default="Net 30")
+    credit_limit: Mapped[Optional[Decimal]] = mapped_column(Numeric(15, 2))
 
     contracts: Mapped[List["EggContract"]] = relationship("EggContract", back_populates="buyer_ref")
 

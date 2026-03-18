@@ -8,7 +8,8 @@ from app.models.flock import Flock, FlockStatus, FlockType, MortalityRecord, Pro
 from app.models.farm import FlockPlacement, Barn, Grower
 from app.models.inventory import EggSale
 from app.models.contracts import EggContract, ContractFlockAssignment
-from app.models.logistics import Shipment, ShipmentLine
+from app.models.logistics import Shipment, ShipmentLine, PickupItem, PickupJob, PickupStatus
+from app.models.weekly_record import WeeklyRecord, WeeklyProductionLog
 
 
 # ── Flock Lifecycle Report ──
@@ -195,6 +196,68 @@ async def get_flock_report(db: AsyncSession, flock_id: str):
                 "transfer_date": src.transfer_date,
             })
 
+    # ── Inventory Reconciliation & Warnings ──
+    inventory_reconciliation = None
+    warnings = []
+
+    if flock.status in (FlockStatus.CLOSING, FlockStatus.SOLD, FlockStatus.CULLED):
+        # Total eggs from weekly production logs
+        weekly_eggs_result = await db.execute(
+            select(func.coalesce(func.sum(WeeklyProductionLog.egg_production), 0))
+            .join(WeeklyRecord, WeeklyProductionLog.weekly_record_id == WeeklyRecord.id)
+            .where(WeeklyRecord.flock_id == flock_id)
+        )
+        total_eggs_from_weekly = int(weekly_eggs_result.scalar() or 0)
+        # Also count from production records
+        total_eggs_from_prod = production_summary.get("total_eggs", 0)
+        total_eggs_produced = max(total_eggs_from_weekly, total_eggs_from_prod)
+        total_dozens_produced = total_eggs_produced / 12 if total_eggs_produced > 0 else 0
+
+        # Total dozens picked up (skids_actual * 900 dozens per skid)
+        pickup_result = await db.execute(
+            select(func.coalesce(func.sum(PickupItem.skids_actual * 900), 0))
+            .join(PickupJob, PickupItem.pickup_job_id == PickupJob.id)
+            .where(
+                PickupItem.flock_id == flock_id,
+                PickupJob.status == PickupStatus.COMPLETED,
+            )
+        )
+        total_dozens_picked_up = int(pickup_result.scalar() or 0)
+
+        # Total dozens shipped
+        shipped_result = await db.execute(
+            select(func.coalesce(func.sum(ShipmentLine.skids * ShipmentLine.dozens_per_skid), 0))
+            .where(ShipmentLine.flock_id == flock_id)
+        )
+        total_dozens_shipped = int(shipped_result.scalar() or 0)
+
+        prod_vs_pickup = total_dozens_produced - total_dozens_picked_up
+        pickup_vs_ship = total_dozens_picked_up - total_dozens_shipped
+
+        inventory_reconciliation = {
+            "total_eggs_produced": total_eggs_produced,
+            "total_dozens_produced": round(total_dozens_produced, 1),
+            "total_dozens_picked_up": total_dozens_picked_up,
+            "total_dozens_shipped": total_dozens_shipped,
+            "production_vs_pickup_diff": round(prod_vs_pickup, 1),
+            "pickup_vs_shipment_diff": pickup_vs_ship,
+        }
+
+        threshold_pct = 0.05
+        if total_dozens_produced > 0 and abs(prod_vs_pickup) > total_dozens_produced * threshold_pct:
+            pct = round(abs(prod_vs_pickup) / total_dozens_produced * 100, 1)
+            warnings.append(
+                f"Production records show {total_dozens_produced:,.0f} dozens produced but only "
+                f"{total_dozens_picked_up:,} dozens were picked up — difference of "
+                f"{abs(prod_vs_pickup):,.0f} dozens ({pct}%)"
+            )
+        if total_dozens_picked_up > 0 and abs(pickup_vs_ship) > total_dozens_picked_up * threshold_pct:
+            warnings.append(
+                f"{total_dozens_picked_up:,} dozens were picked up but only "
+                f"{total_dozens_shipped:,} dozens were shipped — difference of "
+                f"{abs(pickup_vs_ship):,} dozens"
+            )
+
     return {
         "flock_id": flock_id,
         "flock_number": flock.flock_number,
@@ -228,6 +291,8 @@ async def get_flock_report(db: AsyncSession, flock_id: str):
         "placement_history": placements,
         "contracts": contracts_list,
         "flock_sources": flock_sources_list,
+        "inventory_reconciliation": inventory_reconciliation,
+        "warnings": warnings,
     }
 
 

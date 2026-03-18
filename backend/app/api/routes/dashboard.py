@@ -146,6 +146,7 @@ async def recent_activity(db: AsyncSession = Depends(get_db)):
             "date": je.entry_date,
             "description": je.description,
             "detail": f"${total:,.2f}",
+            "flock_id": je.flock_id,
             "flock_number": flock.flock_number if flock else None,
             "status": "posted" if je.is_posted else "draft",
         })
@@ -163,6 +164,7 @@ async def recent_activity(db: AsyncSession = Depends(get_db)):
             "date": m.record_date,
             "description": f"{m.deaths} deaths, {m.culls} culls",
             "detail": m.cause or "",
+            "flock_id": m.flock_id,
             "flock_number": flock.flock_number if flock else None,
             "status": "recorded",
         })
@@ -190,6 +192,7 @@ async def dashboard_alerts(db: AsyncSession = Depends(get_db)):
                     "type": "warning",
                     "title": "High Capacity",
                     "message": f"{barn.name} ({grower.name if grower else ''}) at {util:.0f}% capacity",
+                    "flock_id": None,
                 })
 
     # Low production flocks (latest record < 60%)
@@ -209,6 +212,7 @@ async def dashboard_alerts(db: AsyncSession = Depends(get_db)):
                 "type": "danger",
                 "title": "Low Production",
                 "message": f"Flock {flock.flock_number} at {record.production_pct:.1f}%",
+                "flock_id": flock.id,
             })
 
     # Unposted journal entries
@@ -221,6 +225,7 @@ async def dashboard_alerts(db: AsyncSession = Depends(get_db)):
             "type": "info",
             "title": "Unposted Entries",
             "message": f"{unposted} journal {'entries' if unposted > 1 else 'entry'} awaiting posting",
+            "flock_id": None,
         })
 
     return alerts

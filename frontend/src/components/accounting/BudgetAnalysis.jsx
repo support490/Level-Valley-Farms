@@ -12,7 +12,19 @@ import useToast from '../../hooks/useToast'
 
 const CATEGORIES = ['feed', 'grower_payment', 'flock_cost', 'veterinary', 'service', 'chick_purchase', 'transport', 'utilities', 'other']
 
+const BUDGET_TABS = [
+  { id: 'kpis', label: 'Financial KPIs' },
+  { id: 'variance', label: 'Budget Variance' },
+  { id: 'budgets', label: 'Budgets' },
+  { id: 'costcenters', label: 'Cost Centers' },
+  { id: 'depreciation', label: 'Depreciation' },
+  { id: 'breakeven', label: 'Break-Even' },
+  { id: 'margins', label: 'Margins' },
+  { id: 'cashflow', label: 'Cash Flow' },
+]
+
 export default function BudgetAnalysis({ subTab = 'kpis' }) {
+  const [activeTab, setActiveTab] = useState(subTab)
   const [kpis, setKpis] = useState(null)
   const [variance, setVariance] = useState(null)
   const [costCenters, setCostCenters] = useState(null)
@@ -31,16 +43,18 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
   const [budgetForm, setBudgetForm] = useState({ name: '', year: new Date().getFullYear(), lines: CATEGORIES.map(c => ({ category: c, annual_amount: '' })) })
   const [depForm, setDepForm] = useState({ asset_name: '', purchase_date: '', purchase_cost: '', useful_life_months: '', salvage_value: '0' })
 
+  useEffect(() => { setActiveTab(subTab) }, [subTab])
+
   useEffect(() => {
-    if (subTab === 'kpis') getFinancialKPIs().then(r => setKpis(r.data)).catch(() => {})
-    if (subTab === 'variance') getBudgetVariance(varianceYear).then(r => setVariance(r.data)).catch(() => {})
-    if (subTab === 'costcenters') getCostCenters().then(r => setCostCenters(r.data)).catch(() => {})
-    if (subTab === 'depreciation') getDepreciation().then(r => setDepreciation(r.data)).catch(() => {})
-    if (subTab === 'breakeven') getBreakEven().then(r => setBreakEven(r.data)).catch(() => {})
-    if (subTab === 'margins') getMarginAnalysis().then(r => setMargins(r.data)).catch(() => {})
-    if (subTab === 'cashflow') getCashFlow().then(r => setCashFlow(r.data)).catch(() => {})
-    if (subTab === 'budgets') getBudgets().then(r => setBudgets(r.data)).catch(() => {})
-  }, [subTab, varianceYear])
+    if (activeTab === 'kpis') getFinancialKPIs().then(r => setKpis(r.data)).catch(() => {})
+    if (activeTab === 'variance') getBudgetVariance(varianceYear).then(r => setVariance(r.data)).catch(() => {})
+    if (activeTab === 'costcenters') getCostCenters().then(r => setCostCenters(r.data)).catch(() => {})
+    if (activeTab === 'depreciation') getDepreciation().then(r => setDepreciation(r.data || [])).catch(() => {})
+    if (activeTab === 'breakeven') getBreakEven().then(r => setBreakEven(r.data)).catch(() => {})
+    if (activeTab === 'margins') getMarginAnalysis().then(r => setMargins(r.data || [])).catch(() => {})
+    if (activeTab === 'cashflow') getCashFlow().then(r => setCashFlow(r.data)).catch(() => {})
+    if (activeTab === 'budgets') getBudgets().then(r => setBudgets(r.data || [])).catch(() => {})
+  }, [activeTab, varianceYear])
 
   const handleCreateBudget = async (e) => {
     e.preventDefault()
@@ -74,8 +88,21 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
     <div>
       {toast && <Toast {...toast} onClose={hideToast} />}
 
+      {/* ── Internal Tab Bar ── */}
+      <div className="flex gap-1 px-2 mb-0" style={{ padding: '0 8px', marginBottom: 8 }}>
+        {BUDGET_TABS.map(tab => (
+          <button
+            key={tab.id}
+            className={activeTab === tab.id ? 'active' : ''}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       {/* ═══ FINANCIAL KPIs ═══ */}
-      {subTab === 'kpis' && kpis && (
+      {activeTab === 'kpis' && kpis && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: 'Revenue YTD', value: `$${kpis.revenue_ytd.toLocaleString()}`, color: 'text-lvf-success' },
@@ -96,7 +123,7 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
       )}
 
       {/* ═══ BUDGET VARIANCE ═══ */}
-      {subTab === 'variance' && (
+      {activeTab === 'variance' && (
         <div>
           <div className="flex items-center gap-3 mb-4">
             <label className="text-sm text-lvf-muted">Year:</label>
@@ -107,7 +134,7 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
               <table className="w-full glass-table">
                 <thead><tr><th>Category</th><th className="text-right">Budget</th><th className="text-right">Actual</th><th className="text-right">Variance</th></tr></thead>
                 <tbody>
-                  {variance.categories.filter(c => c.annual_budget > 0 || c.annual_actual > 0).map(c => (
+                  {(variance.categories || []).filter(c => c.annual_budget > 0 || c.annual_actual > 0).map(c => (
                     <tr key={c.category}>
                       <td className="font-medium">{catLabel(c.category)}</td>
                       <td className="text-right font-mono">${c.annual_budget.toLocaleString()}</td>
@@ -125,7 +152,7 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
       )}
 
       {/* ═══ BUDGETS LIST ═══ */}
-      {subTab === 'budgets' && (
+      {activeTab === 'budgets' && (
         <div>
           <div className="flex justify-end mb-4">
             <button onClick={() => setBudgetOpen(true)} className="glass-button-primary flex items-center gap-2"><Plus size={14} /> New Budget</button>
@@ -153,7 +180,7 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
       )}
 
       {/* ═══ COST CENTERS ═══ */}
-      {subTab === 'costcenters' && costCenters && (
+      {activeTab === 'costcenters' && costCenters && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div>
             <h4 className="text-sm font-semibold text-lvf-muted mb-3">By Flock</h4>
@@ -161,10 +188,10 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
               <table className="w-full glass-table">
                 <thead><tr><th>Flock</th><th className="text-right">Total Expenses</th></tr></thead>
                 <tbody>
-                  {costCenters.by_flock.map(f => (
+                  {(costCenters.by_flock || []).map(f => (
                     <tr key={f.flock_id}><td className="text-lvf-accent font-medium">{f.flock_number}</td><td className="text-right font-mono">${f.total_expenses.toLocaleString()}</td></tr>
                   ))}
-                  {costCenters.by_flock.length === 0 && <tr><td colSpan={2} className="text-center py-6 text-lvf-muted">No data</td></tr>}
+                  {(costCenters.by_flock || []).length === 0 && <tr><td colSpan={2} className="text-center py-6 text-lvf-muted">No data</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -175,7 +202,7 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
               <table className="w-full glass-table">
                 <thead><tr><th>Grower</th><th className="text-right">Total Expenses</th></tr></thead>
                 <tbody>
-                  {costCenters.by_grower.map(g => (
+                  {(costCenters.by_grower || []).map(g => (
                     <tr key={g.grower_name}><td className="font-medium">{g.grower_name}</td><td className="text-right font-mono">${g.total_expenses.toLocaleString()}</td></tr>
                   ))}
                 </tbody>
@@ -186,7 +213,7 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
       )}
 
       {/* ═══ DEPRECIATION ═══ */}
-      {subTab === 'depreciation' && (
+      {activeTab === 'depreciation' && (
         <div>
           <div className="flex justify-end mb-4">
             <button onClick={() => setDepOpen(true)} className="glass-button-primary flex items-center gap-2"><Plus size={14} /> Add Asset</button>
@@ -195,7 +222,7 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
             <table className="w-full glass-table">
               <thead><tr><th>Asset</th><th>Purchase Date</th><th className="text-right">Cost</th><th className="text-right">Monthly Dep.</th><th className="text-right">Accumulated</th><th className="text-right">Book Value</th><th className="text-right">Months</th></tr></thead>
               <tbody>
-                {depreciation.map(d => (
+                {(depreciation || []).map(d => (
                   <tr key={d.id}>
                     <td className="font-medium">{d.asset_name}</td>
                     <td className="text-lvf-muted">{d.purchase_date}</td>
@@ -206,7 +233,7 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
                     <td className="text-right text-lvf-muted">{d.months_elapsed} / {d.useful_life_months}</td>
                   </tr>
                 ))}
-                {depreciation.length === 0 && <tr><td colSpan={7} className="text-center py-8 text-lvf-muted">No assets.</td></tr>}
+                {(depreciation || []).length === 0 && <tr><td colSpan={7} className="text-center py-8 text-lvf-muted">No assets.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -214,7 +241,7 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
       )}
 
       {/* ═══ BREAK-EVEN ═══ */}
-      {subTab === 'breakeven' && breakEven && (
+      {activeTab === 'breakeven' && breakEven && (
         <div className="max-w-2xl">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <div className="glass-card p-4 text-center"><p className="text-xs text-lvf-muted">Revenue/Doz</p><p className="text-xl font-bold text-lvf-success">${breakEven.revenue_per_dozen.toFixed(4)}</p></div>
@@ -238,12 +265,12 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
       )}
 
       {/* ═══ MARGIN ANALYSIS ═══ */}
-      {subTab === 'margins' && (
+      {activeTab === 'margins' && (
         <div className="glass-card overflow-hidden">
           <table className="w-full glass-table">
             <thead><tr><th>Contract</th><th>Buyer</th><th>Grade</th><th className="text-right">$/Doz</th><th className="text-right">Dozens</th><th className="text-right">Revenue</th><th className="text-right">Freight</th><th className="text-right">Net</th><th className="text-right">Margin %</th></tr></thead>
             <tbody>
-              {margins.map(m => (
+              {(margins || []).map(m => (
                 <tr key={m.contract_number}>
                   <td className="font-semibold text-lvf-accent">{m.contract_number}</td>
                   <td>{m.buyer}</td>
@@ -256,14 +283,14 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
                   <td className={`text-right font-mono font-bold ${m.margin_pct >= 80 ? 'text-lvf-success' : m.margin_pct >= 50 ? 'text-lvf-warning' : 'text-lvf-danger'}`}>{m.margin_pct}%</td>
                 </tr>
               ))}
-              {margins.length === 0 && <tr><td colSpan={9} className="text-center py-8 text-lvf-muted">No contract data.</td></tr>}
+              {(margins || []).length === 0 && <tr><td colSpan={9} className="text-center py-8 text-lvf-muted">No contract data.</td></tr>}
             </tbody>
           </table>
         </div>
       )}
 
       {/* ═══ CASH FLOW ═══ */}
-      {subTab === 'cashflow' && cashFlow && (
+      {activeTab === 'cashflow' && cashFlow && (
         <div>
           <div className="grid grid-cols-3 gap-4 mb-6">
             <div className="glass-card stat-glow p-4 text-center"><p className="text-xs text-lvf-muted">Total Receipts</p><p className="text-2xl font-bold text-lvf-success">${cashFlow.total_receipts.toLocaleString()}</p></div>
@@ -287,7 +314,7 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
             <table className="w-full glass-table">
               <thead><tr><th>Month</th><th className="text-right">Receipts</th><th className="text-right">Disbursements</th><th className="text-right">Net Cash Flow</th></tr></thead>
               <tbody>
-                {cashFlow.months.map(m => (
+                {(cashFlow.months || []).map(m => (
                   <tr key={m.month}>
                     <td className="font-medium">{m.month}</td>
                     <td className="text-right font-mono text-lvf-success">${m.receipts.toLocaleString()}</td>

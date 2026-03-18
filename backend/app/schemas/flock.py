@@ -50,6 +50,7 @@ class FlockUpdate(BaseModel):
     sold_date: Optional[str] = None
     sale_price_per_bird: Optional[Decimal] = None
     cost_per_bird: Optional[Decimal] = None
+    bird_weight: Optional[float] = None
 
     @field_validator("status")
     @classmethod
@@ -79,6 +80,7 @@ class FlockResponse(BaseModel):
     current_bird_count: int
     status: str
     cost_per_bird: Decimal = Decimal("0.0000")
+    bird_weight: Optional[float] = None
     parent_flock_id: Optional[str] = None
     parent_flock_number: Optional[str] = None
     sold_date: Optional[str]
@@ -93,6 +95,11 @@ class FlockResponse(BaseModel):
     current_barn_id: Optional[str] = None
     current_grower: Optional[str] = None
     flock_sources: Optional[List["FlockSourceResponse"]] = None
+    flock_age_weeks: Optional[int] = None
+    months_laying: Optional[int] = None
+    current_production_pct: Optional[float] = None
+    total_mortality: Optional[int] = None
+    mortality_pct: Optional[float] = None
 
     model_config = {"from_attributes": True}
 

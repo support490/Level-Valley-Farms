@@ -419,7 +419,7 @@ export default function Flocks() {
                       </div>
 
                       {/* Stats */}
-                      <div className="grid grid-cols-2 gap-2 mb-3">
+                      <div className="grid grid-cols-2 gap-2 mb-2">
                         <div className="pallet-box">
                           <p className="text-lg font-bold leading-tight">{f.current_bird_count.toLocaleString()}</p>
                           <p className="text-[10px] text-lvf-muted">birds</p>
@@ -432,10 +432,36 @@ export default function Flocks() {
                         </div>
                       </div>
 
-                      {parseFloat(f.cost_per_bird) > 0 && (
-                        <p className="text-xs text-lvf-muted mb-2">
-                          ${parseFloat(f.cost_per_bird).toFixed(2)}/bird
-                        </p>
+                      {/* Derived operational data */}
+                      <div className="grid grid-cols-3 gap-1 mb-2 text-center">
+                        {f.flock_age_weeks != null && (
+                          <div className="text-[10px]">
+                            <p className="font-semibold">{f.flock_age_weeks}wk</p>
+                            <p className="text-lvf-muted">{f.months_laying != null && f.months_laying > 0 ? `${f.months_laying}mo laying` : 'age'}</p>
+                          </div>
+                        )}
+                        {f.current_production_pct != null && (
+                          <div className="text-[10px]">
+                            <p className={`font-semibold ${
+                              f.current_production_pct >= 80 ? 'text-lvf-success' :
+                              f.current_production_pct >= 60 ? 'text-lvf-warning' : 'text-lvf-danger'
+                            }`}>{f.current_production_pct}%</p>
+                            <p className="text-lvf-muted">production</p>
+                          </div>
+                        )}
+                        {f.total_mortality != null && f.total_mortality > 0 && (
+                          <div className="text-[10px]">
+                            <p className="font-semibold text-lvf-danger">{f.total_mortality}</p>
+                            <p className="text-lvf-muted">{f.mortality_pct}% mort</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {(parseFloat(f.cost_per_bird) > 0 || f.bird_weight) && (
+                        <div className="flex items-center gap-2 text-xs text-lvf-muted mb-2">
+                          {parseFloat(f.cost_per_bird) > 0 && <span>${parseFloat(f.cost_per_bird).toFixed(2)}/bird</span>}
+                          {f.bird_weight && <span>{f.bird_weight} lbs</span>}
+                        </div>
                       )}
 
                       {/* Actions */}
@@ -469,9 +495,11 @@ export default function Flocks() {
                 <th>Breed</th>
                 <th>Hatch</th>
                 <th>Birds</th>
+                <th>Age</th>
+                <th>Prod %</th>
+                <th>Mortality</th>
                 <th>$/Bird</th>
                 <th>Barn</th>
-                <th>Grower</th>
                 <th>Status</th>
                 <th className="w-36"></th>
               </tr>
@@ -492,11 +520,26 @@ export default function Flocks() {
                     {f.current_bird_count.toLocaleString()}
                     <span className="text-lvf-muted text-xs ml-1">/ {f.initial_bird_count.toLocaleString()}</span>
                   </td>
+                  <td className="text-lvf-muted text-xs">
+                    {f.flock_age_weeks != null ? `${f.flock_age_weeks}wk` : '—'}
+                  </td>
+                  <td>
+                    {f.current_production_pct != null ? (
+                      <span className={`text-xs font-medium ${
+                        f.current_production_pct >= 80 ? 'text-lvf-success' :
+                        f.current_production_pct >= 60 ? 'text-lvf-warning' : 'text-lvf-danger'
+                      }`}>{f.current_production_pct}%</span>
+                    ) : '—'}
+                  </td>
+                  <td className="text-xs">
+                    {f.total_mortality > 0 ? (
+                      <span className="text-lvf-danger">{f.total_mortality} ({f.mortality_pct}%)</span>
+                    ) : '—'}
+                  </td>
                   <td className="text-lvf-muted">
                     {parseFloat(f.cost_per_bird) > 0 ? `$${parseFloat(f.cost_per_bird).toFixed(2)}` : '—'}
                   </td>
                   <td>{f.current_barn || '—'}</td>
-                  <td className="text-lvf-muted">{f.current_grower || '—'}</td>
                   <td>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[f.status] || ''}`}>
                       {f.status}
@@ -506,7 +549,7 @@ export default function Flocks() {
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={10} className="text-center py-8 text-lvf-muted">No flocks found.</td></tr>
+                <tr><td colSpan={12} className="text-center py-8 text-lvf-muted">No flocks found.</td></tr>
               )}
             </tbody>
           </table>

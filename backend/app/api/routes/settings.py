@@ -28,6 +28,9 @@ DEFAULT_SETTINGS = {
     "default_eggs_per_case": ("360", "Default eggs per case"),
     "mortality_alert_threshold": ("5", "Mortality % threshold for alerts"),
     "capacity_alert_threshold": ("95", "Barn capacity % threshold for alerts"),
+    "warehouse_address": ("", "Warehouse physical address"),
+    "warehouse_latitude": ("", "Warehouse latitude"),
+    "warehouse_longitude": ("", "Warehouse longitude"),
 }
 
 

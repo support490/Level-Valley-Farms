@@ -40,6 +40,8 @@ async def get_all_growers(db: AsyncSession, include_inactive: bool = False):
                 "current_bird_count": b.current_bird_count,
                 "is_active": b.is_active,
                 "notes": b.notes,
+                "latitude": b.latitude,
+                "longitude": b.longitude,
                 "current_flock_id": current_flock.id if current_flock else None,
                 "current_flock_number": current_flock.flock_number if current_flock else None,
                 "current_flock_status": current_flock.status.value if current_flock else None,
@@ -76,6 +78,8 @@ async def create_grower(db: AsyncSession, data: GrowerCreate):
             bird_capacity=barn_data.bird_capacity,
             grower_id=grower.id,
             notes=barn_data.notes,
+            latitude=barn_data.latitude,
+            longitude=barn_data.longitude,
         )
         db.add(barn)
 

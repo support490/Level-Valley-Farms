@@ -40,6 +40,8 @@ class Barn(Base, TimestampMixin):
     grower_id: Mapped[str] = mapped_column(String(36), ForeignKey("growers.id"), nullable=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[Optional[str]] = mapped_column(Text)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     grower: Mapped["Grower"] = relationship("Grower", back_populates="barns")
     flock_placements: Mapped[List["FlockPlacement"]] = relationship("FlockPlacement", back_populates="barn")

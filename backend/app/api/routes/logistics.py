@@ -206,7 +206,7 @@ async def download_bol_pdf(shipment_id: str, db: AsyncSession = Depends(get_db))
     return StreamingResponse(
         pdf_buffer,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": f"inline; filename={filename}"}
     )
 
 

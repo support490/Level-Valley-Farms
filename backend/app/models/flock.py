@@ -58,6 +58,7 @@ class Flock(Base, TimestampMixin):
     current_bird_count: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[FlockStatus] = mapped_column(default=FlockStatus.ACTIVE)
     cost_per_bird: Mapped[Decimal] = mapped_column(Numeric(15, 4), default=Decimal("0.0000"))
+    bird_weight: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     parent_flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"), index=True)
     sold_date: Mapped[Optional[str]] = mapped_column(String(10))
     sale_price_per_bird: Mapped[Optional[Decimal]] = mapped_column(Numeric(15, 4))

@@ -50,12 +50,12 @@ export default function ApAr({ subTab = 'bills' }) {
       const [billsRes, invsRes, apRes, arRes, bankRes, growerRes] = await Promise.all([
         getBills(), getInvoices(), getAPAging(), getARAging(), getBankAccounts(), getGrowerPayments(),
       ])
-      setBills(billsRes.data)
-      setInvoices(invsRes.data)
+      setBills(billsRes.data || [])
+      setInvoices(invsRes.data || [])
       setApAging(apRes.data)
       setArAging(arRes.data)
-      setBankAccounts(bankRes.data)
-      setGrowerPayments(growerRes.data)
+      setBankAccounts(bankRes.data || [])
+      setGrowerPayments(growerRes.data || [])
     } catch { showToast('Error loading data', 'error') }
   }
 
@@ -223,16 +223,20 @@ export default function ApAr({ subTab = 'bills' }) {
       )}
 
       {/* ═══════════ AGING ═══════════ */}
-      {subTab === 'aging' && (
+      {(subTab === 'aging' || subTab === 'aging-ap' || subTab === 'aging-ar') && (
         <div className="space-y-6">
-          <div>
-            <h4 className="text-sm font-semibold text-lvf-muted mb-3">Accounts Payable Aging</h4>
-            <AgingSection data={apAging} type="ap" />
-          </div>
-          <div>
-            <h4 className="text-sm font-semibold text-lvf-muted mb-3">Accounts Receivable Aging</h4>
-            <AgingSection data={arAging} type="ar" />
-          </div>
+          {subTab !== 'aging-ar' && (
+            <div>
+              <h4 className="text-sm font-semibold text-lvf-muted mb-3">Accounts Payable Aging</h4>
+              <AgingSection data={apAging} type="ap" />
+            </div>
+          )}
+          {subTab !== 'aging-ap' && (
+            <div>
+              <h4 className="text-sm font-semibold text-lvf-muted mb-3">Accounts Receivable Aging</h4>
+              <AgingSection data={arAging} type="ar" />
+            </div>
+          )}
         </div>
       )}
 

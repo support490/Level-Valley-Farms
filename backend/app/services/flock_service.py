@@ -2,11 +2,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from decimal import Decimal
+from datetime import date
 
 from app.models.farm import Barn, Grower, FlockPlacement, BarnType
 from app.models.flock import (
     Flock, FlockStatus, FlockType, BirdColor, SourceType,
-    MortalityRecord, FlockSource, VALID_STATUS_TRANSITIONS,
+    MortalityRecord, ProductionRecord, FlockSource, VALID_STATUS_TRANSITIONS,
 )
 from app.models.accounting import JournalEntry, JournalLine, ExpenseCategory
 from app.schemas.flock import (
@@ -98,6 +99,42 @@ async def _flock_to_response(db: AsyncSession, flock: Flock) -> dict:
                     "transfer_date": s.transfer_date,
                 })
 
+    # Derived operational data
+    flock_age_weeks = None
+    months_laying = None
+    hatch = flock.hatch_date
+    if hatch:
+        try:
+            hatch_dt = date.fromisoformat(hatch)
+            flock_age_weeks = (date.today() - hatch_dt).days // 7
+            if flock.flock_type == FlockType.LAYER:
+                months_laying = max(0, (flock_age_weeks - 18) * 7 // 30)
+        except (ValueError, TypeError):
+            pass
+
+    # Latest production % from most recent ProductionRecord
+    current_production_pct = None
+    prod_result = await db.execute(
+        select(ProductionRecord.production_pct)
+        .where(ProductionRecord.flock_id == flock.id)
+        .order_by(ProductionRecord.record_date.desc())
+        .limit(1)
+    )
+    latest_prod = prod_result.scalar_one_or_none()
+    if latest_prod is not None:
+        current_production_pct = round(latest_prod, 1)
+
+    # Total mortality
+    mort_result = await db.execute(
+        select(
+            func.coalesce(func.sum(MortalityRecord.deaths), 0),
+            func.coalesce(func.sum(MortalityRecord.culls), 0),
+        ).where(MortalityRecord.flock_id == flock.id)
+    )
+    mort_row = mort_result.one()
+    total_mortality = int(mort_row[0]) + int(mort_row[1])
+    mortality_pct = round(total_mortality / flock.initial_bird_count * 100, 1) if flock.initial_bird_count > 0 else 0.0
+
     return {
         **{c.key: getattr(flock, c.key) for c in flock.__table__.columns},
         "status": flock.status.value if hasattr(flock.status, 'value') else flock.status,
@@ -109,6 +146,11 @@ async def _flock_to_response(db: AsyncSession, flock: Flock) -> dict:
         "current_grower": grower_name,
         "parent_flock_number": parent_flock_number,
         "flock_sources": sources,
+        "flock_age_weeks": flock_age_weeks,
+        "months_laying": months_laying,
+        "current_production_pct": current_production_pct,
+        "total_mortality": total_mortality,
+        "mortality_pct": mortality_pct,
     }
 
 

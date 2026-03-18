@@ -180,6 +180,20 @@
     @apply rounded-xl p-3 border border-lvf-border/50 bg-lvf-dark/60 min-w-[180px];
   }
 
+  /* ── Skid Rectangles ── */
+  .skid-rect {
+    @apply relative rounded-sm;
+    width: 14px;
+    height: 18px;
+    background: rgba(100, 160, 255, 0.18);
+    border: 1px solid rgba(100, 160, 255, 0.25);
+  }
+
+  .skid-rect:hover {
+    background: rgba(100, 160, 255, 0.35);
+    border-color: rgba(100, 160, 255, 0.5);
+  }
+
   /* ── Capacity Bar ── */
   .capacity-bar {
     @apply w-full h-3 rounded-full overflow-hidden;
@@ -317,7 +331,117 @@
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
 }
 
+[data-theme="light"] .skid-rect {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+[data-theme="light"] .skid-rect:hover {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
 [data-theme="light"] .capacity-bar {
   background: rgba(229, 231, 235, 0.8);
   border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* ── Check Print Styles ── */
+
+@media print {
+  .no-print { display: none !important; }
+
+  .qb-check-print-page {
+    width: 8.5in;
+    margin: 0;
+    padding: 0;
+    font-family: 'Courier New', monospace;
+    font-size: 11pt;
+    color: black;
+  }
+
+  .qb-check-face {
+    height: 3.5in;
+    padding: 0.3in 0.5in;
+    border-bottom: 1px dashed #999;
+    position: relative;
+    page-break-inside: avoid;
+  }
+
+  .qb-check-stub {
+    height: 3.5in;
+    padding: 0.3in 0.5in;
+    border-bottom: 1px dashed #999;
+    page-break-inside: avoid;
+  }
+
+  .qb-check-face .check-date {
+    position: absolute;
+    top: 0.4in;
+    right: 0.5in;
+  }
+
+  .qb-check-face .check-payee {
+    margin-top: 0.6in;
+    font-size: 12pt;
+  }
+
+  .qb-check-face .check-amount-box {
+    position: absolute;
+    top: 0.9in;
+    right: 0.5in;
+    border: 1px solid black;
+    padding: 2px 8px;
+    font-weight: bold;
+    font-size: 12pt;
+  }
+
+  .qb-check-face .check-amount-words {
+    margin-top: 0.2in;
+    border-bottom: 1px solid black;
+    padding-bottom: 2px;
+    font-size: 10pt;
+  }
+
+  .qb-check-face .check-memo {
+    position: absolute;
+    bottom: 0.5in;
+    left: 0.5in;
+    font-size: 9pt;
+  }
+
+  .qb-check-face .check-signature-line {
+    position: absolute;
+    bottom: 0.5in;
+    right: 0.5in;
+    width: 3in;
+    border-top: 1px solid black;
+    text-align: right;
+    font-size: 8pt;
+    padding-top: 2px;
+  }
+
+  .qb-stub-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+    margin-top: 0.2in;
+  }
+
+  .qb-stub-table th {
+    border-bottom: 1px solid black;
+    text-align: left;
+    padding: 2px 6px;
+    font-size: 8pt;
+  }
+
+  .qb-stub-table td {
+    padding: 2px 6px;
+    border-bottom: 1px solid #ccc;
+  }
+
+  @page {
+    size: 8.5in 11in;
+    margin: 0;
+  }
 }

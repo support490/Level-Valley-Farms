@@ -8,6 +8,8 @@ class BarnInline(BaseModel):
     barn_type: str = Field("layer", pattern="^(pullet|layer)$")
     bird_capacity: int = Field(..., gt=0)
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class GrowerCreate(BaseModel):
@@ -56,6 +58,8 @@ class BarnDetail(BaseModel):
     current_bird_count: int = 0
     is_active: bool = True
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     current_flock_id: Optional[str] = None
     current_flock_number: Optional[str] = None
     current_flock_status: Optional[str] = None

@@ -71,6 +71,18 @@ export default function FlockReport() {
 
       {report && !loading && (
         <div className="space-y-6">
+          {/* Warnings */}
+          {report.warnings && report.warnings.length > 0 && (
+            <div className="space-y-2">
+              {report.warnings.map((w, i) => (
+                <div key={i} className="glass-card p-4 border border-lvf-warning/30 bg-lvf-warning/5 flex items-start gap-3">
+                  <Skull size={16} className="text-lvf-warning mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-lvf-warning">{w}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Header */}
           <div className="glass-card p-6">
             <div className="flex items-center justify-between mb-4">
