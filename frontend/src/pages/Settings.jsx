@@ -28,26 +28,30 @@ export default function Settings() {
   const { isLoaded: mapsLoaded } = useGoogleMaps()
 
   const load = async () => {
-    const [settingsRes, dbRes] = await Promise.all([getSettings(), getDbStats()])
-    setSettings(settingsRes.data)
-    setDbStats(dbRes.data)
+    try {
+      const [settingsRes, dbRes] = await Promise.all([getSettings(), getDbStats()])
+      setSettings(settingsRes.data)
+      setDbStats(dbRes.data)
 
-    const formData = {}
-    for (const [key, val] of Object.entries(settingsRes.data)) {
-      formData[key] = val.value
+      const formData = {}
+      for (const [key, val] of Object.entries(settingsRes.data)) {
+        formData[key] = val.value
+      }
+      setForm(formData)
+    } catch (err) {
+      showToast('Error loading settings', 'error')
     }
-    setForm(formData)
   }
 
   const loadAudit = async () => {
     const res = await getAuditLog({ limit: 50 })
-    setAuditLogs(res.data)
+    setAuditLogs(res.data || { total: 0, logs: [] })
   }
 
   const loadUsers = async () => {
     try {
       const res = await getUsers()
-      setUsers(res.data)
+      setUsers(res.data || [])
     } catch {}
   }
 
@@ -265,15 +269,30 @@ export default function Settings() {
                 className="glass-input w-full"
               />
               {mapsLoaded && form.warehouse_latitude && form.warehouse_longitude && (
-                <GoogleMap
-                  mapContainerStyle={{ width: '100%', height: '180px', borderRadius: '12px' }}
-                  center={{ lat: parseFloat(form.warehouse_latitude), lng: parseFloat(form.warehouse_longitude) }}
-                  zoom={15}
-                  mapTypeId="satellite"
-                  options={{ streetViewControl: false, mapTypeControl: false, fullscreenControl: false }}
-                >
-                  <Marker position={{ lat: parseFloat(form.warehouse_latitude), lng: parseFloat(form.warehouse_longitude) }} />
-                </GoogleMap>
+                <div className="relative">
+                  <GoogleMap
+                    mapContainerStyle={{ width: '100%', height: '180px', borderRadius: '12px' }}
+                    center={{ lat: parseFloat(form.warehouse_latitude), lng: parseFloat(form.warehouse_longitude) }}
+                    zoom={15}
+                    options={{ mapTypeId: 'satellite', streetViewControl: false, mapTypeControl: false, fullscreenControl: false }}
+                    onLoad={(m) => { window._warehousePinMap = m }}
+                  >
+                    <Marker position={{ lat: parseFloat(form.warehouse_latitude), lng: parseFloat(form.warehouse_longitude) }} />
+                  </GoogleMap>
+                  <button
+                    type="button"
+                    title="Zoom to my location"
+                    className="absolute top-2 right-2 bg-white/90 hover:bg-white text-gray-700 p-1.5 rounded shadow text-xs"
+                    onClick={() => {
+                      navigator.geolocation?.getCurrentPosition((pos) => {
+                        const m = window._warehousePinMap
+                        if (m) { m.panTo({ lat: pos.coords.latitude, lng: pos.coords.longitude }); m.setZoom(16) }
+                      })
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg>
+                  </button>
+                </div>
               )}
             </div>
           </div>

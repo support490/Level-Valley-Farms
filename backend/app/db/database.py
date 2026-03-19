@@ -81,12 +81,43 @@ async def _migrate_schema(conn):
     # Flock — add bird_weight
     await _add_column_if_missing(conn, "flocks", "bird_weight", "FLOAT")
 
+    # Weekly record sync: add weekly_record_id to mortality_records and production_records
+    await _add_column_if_missing(conn, "mortality_records", "weekly_record_id", "VARCHAR(36)")
+    await _add_column_if_missing(conn, "production_records", "weekly_record_id", "VARCHAR(36)")
+
     # QB Audit Fix: Buyer — add QB fields
     await _add_column_if_missing(conn, "buyers", "company", "VARCHAR(200)")
     await _add_column_if_missing(conn, "buyers", "bill_to_address", "TEXT")
     await _add_column_if_missing(conn, "buyers", "ship_to_address", "TEXT")
     await _add_column_if_missing(conn, "buyers", "terms", "VARCHAR(50) DEFAULT 'Net 30'")
     await _add_column_if_missing(conn, "buyers", "credit_limit", "NUMERIC(15, 2)")
+
+    # Grower — latitude/longitude for driveway entrance
+    await _add_column_if_missing(conn, "growers", "latitude", "FLOAT")
+    await _add_column_if_missing(conn, "growers", "longitude", "FLOAT")
+
+    # Egg Tracking Overhaul: Buyer customer_type
+    await _add_column_if_missing(conn, "buyers", "customer_type", "VARCHAR(50)")
+
+    # Egg Tracking Overhaul: EggInventory — dynamic weight + production period
+    await _add_column_if_missing(conn, "egg_inventory", "weight_per_skid", "FLOAT")
+    await _add_column_if_missing(conn, "egg_inventory", "production_period_start", "VARCHAR(10)")
+    await _add_column_if_missing(conn, "egg_inventory", "production_period_end", "VARCHAR(10)")
+    await _add_column_if_missing(conn, "egg_inventory", "weekly_record_id", "VARCHAR(36)")
+    await _add_column_if_missing(conn, "egg_inventory", "condition", "VARCHAR(50)")
+
+    # Egg Tracking Overhaul: ShipmentLine — per-line contract
+    await _add_column_if_missing(conn, "shipment_lines", "contract_id", "VARCHAR(36) REFERENCES egg_contracts(id)")
+
+    # Egg Tracking Overhaul: Shipment — buyer_id FK
+    await _add_column_if_missing(conn, "shipments", "buyer_id", "VARCHAR(36) REFERENCES buyers(id)")
+
+    # Egg Tracking Overhaul: PickupJob — arrival_status
+    await _add_column_if_missing(conn, "pickup_jobs", "arrival_status", "VARCHAR(20) DEFAULT 'pending'")
+
+    # Egg Tracking Overhaul: PickupItem — condition + skids_received
+    await _add_column_if_missing(conn, "pickup_items", "condition", "VARCHAR(50)")
+    await _add_column_if_missing(conn, "pickup_items", "skids_received", "INTEGER")
 
 
 async def init_db():

@@ -55,8 +55,8 @@ export default function FlockDetail() {
       ])
       setFlock(flockRes.data)
       setReport(reportRes.data)
-      setMortalityRecords(mortRes.data)
-      setPlacements(placeRes.data)
+      setMortalityRecords(mortRes.data || [])
+      setPlacements(placeRes.data || [])
 
       const flockChartData = Object.values(chartRes.data)[0] || []
       setChartData(flockChartData.map(p => ({

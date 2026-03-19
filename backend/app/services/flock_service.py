@@ -313,7 +313,6 @@ async def transfer_flock(db: AsyncSession, flock_id: str, data: TransferRequest)
             current.is_current = False
             current.removed_date = data.transfer_date
             original_bird_count = current.bird_count
-            current.bird_count = data.bird_count
 
             remaining = original_bird_count - data.bird_count
             if remaining > 0:

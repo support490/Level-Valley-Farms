@@ -147,3 +147,9 @@ async def unassign_flock(
 @router.get("/flock/{flock_id}", response_model=List[EggContractResponse])
 async def get_flock_contracts(flock_id: str, db: AsyncSession = Depends(get_db)):
     return await contract_service.get_contracts_for_flock(db, flock_id)
+
+
+@router.get("/flock/{flock_id}/default")
+async def get_flock_default_contract(flock_id: str, db: AsyncSession = Depends(get_db)):
+    result = await contract_service.get_flock_default_contract(db, flock_id)
+    return result or {}

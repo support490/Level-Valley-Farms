@@ -24,6 +24,8 @@ class Grower(Base, TimestampMixin):
     contact_email: Mapped[Optional[str]] = mapped_column(String(200))
     notes: Mapped[Optional[str]] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     barns: Mapped[List["Barn"]] = relationship("Barn", back_populates="grower", cascade="all, delete-orphan")
 

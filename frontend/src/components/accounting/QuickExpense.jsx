@@ -48,15 +48,17 @@ export default function QuickExpense() {
   const { toast, showToast, hideToast } = useToast()
 
   const load = async () => {
-    const [accountsRes, flocksRes] = await Promise.all([getAccounts(), getFlocks()])
-    setAccounts(accountsRes.data)
-    setFlocks(flocksRes.data)
+    try {
+      const [accountsRes, flocksRes] = await Promise.all([getAccounts(), getFlocks()])
+      setAccounts(accountsRes.data || [])
+      setFlocks(flocksRes.data || [])
 
-    // Default payment account to Cash (1010)
-    const cashAccount = accountsRes.data.find(a => a.account_number === '1010')
-    if (cashAccount) {
-      setForm(prev => ({ ...prev, payment_account_id: cashAccount.id }))
-    }
+      // Default payment account to Cash (1010)
+      const cashAccount = (accountsRes.data || []).find(a => a.account_number === '1010')
+      if (cashAccount) {
+        setForm(prev => ({ ...prev, payment_account_id: cashAccount.id }))
+      }
+    } catch {}
   }
 
   useEffect(() => { load() }, [])

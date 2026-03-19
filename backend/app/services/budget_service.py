@@ -7,7 +7,7 @@ import calendar
 
 from app.models.budget import Budget, BudgetLine, DepreciationSchedule, DepreciationMethod
 from app.models.accounting import Account, AccountType, JournalEntry, JournalLine, ExpenseCategory
-from app.models.flock import Flock, FlockType, ProductionRecord
+from app.models.flock import Flock, FlockType, FlockStatus, ProductionRecord
 from app.models.farm import Barn, Grower, FlockPlacement
 from app.models.inventory import EggSale
 from app.models.logistics import Shipment, ShipmentLine, ShipmentStatus
@@ -451,7 +451,7 @@ async def get_financial_kpis(db: AsyncSession):
 
     # Active flocks
     flock_result = await db.execute(
-        select(func.count(Flock.id)).where(Flock.status.in_(["active", "closing"]))
+        select(func.count(Flock.id)).where(Flock.status.in_([FlockStatus.ACTIVE, FlockStatus.CLOSING]))
     )
     active_flocks = flock_result.scalar() or 0
 

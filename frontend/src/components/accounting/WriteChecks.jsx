@@ -36,14 +36,16 @@ export default function WriteChecks() {
 
   useEffect(() => {
     const load = async () => {
-      const [bankRes, acctRes, vendorRes] = await Promise.all([
-        getBankAccounts(), getAccounts(), getVendors(),
-      ])
-      const banks = bankRes.data || []
-      setBankAccounts(banks)
-      if (banks.length > 0) setSelectedBankId(banks[0].id)
-      setAccounts(acctRes.data || [])
-      setVendors(vendorRes.data || [])
+      try {
+        const [bankRes, acctRes, vendorRes] = await Promise.all([
+          getBankAccounts(), getAccounts(), getVendors(),
+        ])
+        const banks = bankRes.data || []
+        setBankAccounts(banks)
+        if (banks.length > 0) setSelectedBankId(banks[0].id)
+        setAccounts(acctRes.data || [])
+        setVendors(vendorRes.data || [])
+      } catch {}
     }
     load()
   }, [])

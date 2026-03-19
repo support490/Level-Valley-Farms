@@ -43,10 +43,10 @@ export default function CreateInvoices({ onSaved }) {
   const loadData = async () => {
     try {
       const [acctRes, buyerRes] = await Promise.all([getAccounts(), getBuyers()])
-      setAccounts(acctRes.data)
+      setAccounts(acctRes.data || [])
       setBuyers(buyerRes.data || [])
     } catch {
-      try { const acctRes = await getAccounts(); setAccounts(acctRes.data) } catch {}
+      try { const acctRes = await getAccounts(); setAccounts(acctRes.data || []) } catch {}
     }
   }
 

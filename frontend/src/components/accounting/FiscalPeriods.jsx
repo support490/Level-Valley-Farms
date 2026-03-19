@@ -17,7 +17,7 @@ export default function FiscalPeriods() {
 
   const load = async () => {
     const res = await getFiscalPeriods()
-    setPeriods(res.data)
+    setPeriods(res.data || [])
   }
 
   useEffect(() => { load() }, [])

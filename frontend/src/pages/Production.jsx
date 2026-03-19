@@ -1,16 +1,15 @@
 import { useState, useEffect } from 'react'
-import { Plus, TrendingUp, AlertTriangle, ClipboardList } from 'lucide-react'
+import { TrendingUp, AlertTriangle, ClipboardList } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine
 } from 'recharts'
 import {
-  recordProduction, recordBulkProduction, getProductionChart,
+  getProductionChart,
   getProductionSummary, getProductionAlerts, getBreedCurves,
   getWeeklyRecords, deleteWeeklyRecord,
 } from '../api/production'
 import { getFlocks } from '../api/flocks'
 import SearchSelect from '../components/common/SearchSelect'
-import Modal from '../components/common/Modal'
 import Toast from '../components/common/Toast'
 import useToast from '../hooks/useToast'
 import WeeklyRecordWizard from '../components/production/WeeklyRecordWizard'
@@ -40,43 +39,31 @@ export default function Production() {
   const [alerts, setAlerts] = useState([])
   const [breedCurves, setBreedCurves] = useState({})
   const [showBreedCurve, setShowBreedCurve] = useState(true)
-  const [entryOpen, setEntryOpen] = useState(false)
-  const [bulkOpen, setBulkOpen] = useState(false)
   const [dateRange, setDateRange] = useState({ from: '', to: '' })
-  const [submitting, setSubmitting] = useState(false)
   const [weeklyRecords, setWeeklyRecords] = useState([])
   const [wizardOpen, setWizardOpen] = useState(false)
   const [editRecord, setEditRecord] = useState(null)
   const { toast, showToast, hideToast } = useToast()
 
-  const [form, setForm] = useState({
-    flock_id: '', record_date: new Date().toISOString().split('T')[0],
-    bird_count: '', egg_count: '', cracked: 0, floor_eggs: 0, notes: ''
-  })
-
-  const [bulkForm, setBulkForm] = useState({
-    record_date: new Date().toISOString().split('T')[0],
-    entries: []
-  })
-
   const load = async () => {
-    const [flocksRes, alertsRes, curvesRes] = await Promise.all([
-      getFlocks({ status: 'active' }),
-      getProductionAlerts().catch(() => ({ data: [] })),
-      getBreedCurves().catch(() => ({ data: { curves: {} } })),
-    ])
-    setFlocks(flocksRes.data)
-    setAlerts(alertsRes.data)
-    setBreedCurves(curvesRes.data.curves || {})
+    try {
+      const [flocksRes, alertsRes, curvesRes] = await Promise.all([
+        getFlocks({ status: 'active' }),
+        getProductionAlerts().catch(() => ({ data: [] })),
+        getBreedCurves().catch(() => ({ data: { curves: {} } })),
+      ])
+      setFlocks(flocksRes.data || [])
+      setAlerts(alertsRes.data || [])
+      setBreedCurves(curvesRes.data.curves || {})
 
-    getWeeklyRecords().then(r => setWeeklyRecords(r.data)).catch(() => {})
+      getWeeklyRecords().then(r => setWeeklyRecords(Array.isArray(r.data) ? r.data : [])).catch(() => {})
+    } catch (err) {
+      console.error('Production load error:', err)
+    }
   }
 
   useEffect(() => { load() }, [])
 
-  const flockOptions = flocks.map(f => ({
-    value: f.id, label: `${f.flock_number} — ${f.current_bird_count} birds`
-  }))
   const flockMultiOptions = flocks.map(f => ({ value: f.id, label: f.flock_number }))
 
   // Load chart data when selected flocks change
@@ -157,98 +144,6 @@ export default function Production() {
     loadChart()
   }, [selectedFlocks, dateRange, showBreedCurve])
 
-  // ── Single entry ──
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (submitting) return
-    const birdCount = parseInt(form.bird_count)
-    const eggCount = parseInt(form.egg_count)
-    if (isNaN(birdCount) || birdCount <= 0) return showToast('Bird count required', 'error')
-    if (isNaN(eggCount) || eggCount < 0) return showToast('Egg count required', 'error')
-    if (!form.flock_id) return showToast('Select a flock', 'error')
-    setSubmitting(true)
-    try {
-      await recordProduction({
-        ...form, bird_count: birdCount, egg_count: eggCount,
-        cracked: parseInt(form.cracked) || 0, floor_eggs: parseInt(form.floor_eggs) || 0,
-      })
-      const pct = birdCount > 0 ? (eggCount / birdCount * 100).toFixed(1) : 0
-      showToast(`Production recorded: ${pct}%`)
-      setEntryOpen(false)
-      setForm(prev => ({ ...prev, bird_count: '', egg_count: '', cracked: 0, floor_eggs: 0, notes: '' }))
-      if (selectedFlocks.some(f => f.value === form.flock_id)) setSelectedFlocks([...selectedFlocks])
-      load()
-    } catch (err) {
-      showToast(err.response?.data?.detail || 'Error', 'error')
-    } finally { setSubmitting(false) }
-  }
-
-  // ── Bulk entry ──
-  const openBulk = () => {
-    const layerFlocks = flocks.filter(f => f.flock_type === 'layer')
-    setBulkForm({
-      record_date: new Date().toISOString().split('T')[0],
-      entries: layerFlocks.map(f => ({
-        flock_id: f.id,
-        flock_number: f.flock_number,
-        bird_count: f.current_bird_count,
-        egg_count: '',
-        cracked: 0,
-        floor_eggs: 0,
-        notes: '',
-        _include: true,
-      }))
-    })
-    setBulkOpen(true)
-  }
-
-  const handleBulkSubmit = async (e) => {
-    e.preventDefault()
-    if (submitting) return
-    const entries = bulkForm.entries
-      .filter(e => e._include && parseInt(e.egg_count) >= 0)
-      .map(e => ({
-        flock_id: e.flock_id,
-        bird_count: parseInt(e.bird_count),
-        egg_count: parseInt(e.egg_count) || 0,
-        cracked: parseInt(e.cracked) || 0,
-        floor_eggs: parseInt(e.floor_eggs) || 0,
-        notes: e.notes || undefined,
-      }))
-
-    if (entries.length === 0) return showToast('No entries to record', 'error')
-    setSubmitting(true)
-    try {
-      const res = await recordBulkProduction({ record_date: bulkForm.record_date, entries })
-      showToast(`Recorded production for ${res.data.recorded.length} flocks`)
-      setBulkOpen(false)
-      if (selectedFlocks.length > 0) setSelectedFlocks([...selectedFlocks])
-      load()
-    } catch (err) {
-      showToast(err.response?.data?.detail || 'Error', 'error')
-    } finally { setSubmitting(false) }
-  }
-
-  const updateBulkEntry = (idx, field, value) => {
-    const entries = [...bulkForm.entries]
-    entries[idx] = { ...entries[idx], [field]: value }
-    setBulkForm({ ...bulkForm, entries })
-  }
-
-  const handleFlockSelect = (opt) => {
-    const flock = flocks.find(f => f.id === opt?.value)
-    setForm(prev => ({
-      ...prev, flock_id: opt?.value || '',
-      bird_count: flock ? flock.current_bird_count : '',
-    }))
-  }
-
-  const calcPct = (birds, eggs) => {
-    const b = parseInt(birds) || 0
-    const e = parseInt(eggs) || 0
-    return b > 0 ? (e / b * 100).toFixed(1) : '0.0'
-  }
-
   const alertColors = { danger: 'border-lvf-danger/30 bg-lvf-danger/10', warning: 'border-lvf-warning/30 bg-lvf-warning/10' }
 
   return (
@@ -258,14 +153,8 @@ export default function Production() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold">Production</h2>
         <div className="flex gap-2">
-          <button onClick={() => setWizardOpen(true)} className="glass-button-secondary flex items-center gap-2">
+          <button onClick={() => setWizardOpen(true)} className="glass-button-primary flex items-center gap-2">
             <ClipboardList size={16} /> Weekly Record
-          </button>
-          <button onClick={openBulk} className="glass-button-secondary flex items-center gap-2">
-            <ClipboardList size={16} /> Bulk Entry
-          </button>
-          <button onClick={() => setEntryOpen(true)} className="glass-button-primary flex items-center gap-2">
-            <Plus size={16} /> Record Production
           </button>
         </div>
       </div>
@@ -381,151 +270,7 @@ export default function Production() {
         )}
       </div>
 
-      {/* Single Entry Modal */}
-      <Modal isOpen={entryOpen} onClose={() => setEntryOpen(false)} title="Record Production">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Flock *</label>
-              <SearchSelect options={flockOptions}
-                value={flockOptions.find(o => o.value === form.flock_id) || null}
-                onChange={handleFlockSelect} placeholder="Select flock..." />
-            </div>
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Date *</label>
-              <input className="glass-input w-full" type="date" required value={form.record_date}
-                onChange={e => setForm({ ...form, record_date: e.target.value })} />
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Bird Count *</label>
-              <input className="glass-input w-full" type="number" required min="1" value={form.bird_count}
-                onChange={e => setForm({ ...form, bird_count: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Egg Count *</label>
-              <input className="glass-input w-full" type="number" required min="0" value={form.egg_count}
-                onChange={e => setForm({ ...form, egg_count: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Production %</label>
-              <div className={`glass-input w-full text-center font-bold text-lg ${
-                parseFloat(calcPct(form.bird_count, form.egg_count)) >= 80 ? 'text-lvf-success' :
-                parseFloat(calcPct(form.bird_count, form.egg_count)) >= 60 ? 'text-lvf-warning' : 'text-lvf-danger'
-              }`}>{calcPct(form.bird_count, form.egg_count)}%</div>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Cracked Eggs</label>
-              <input className="glass-input w-full" type="number" min="0" value={form.cracked}
-                onChange={e => setForm({ ...form, cracked: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Floor Eggs</label>
-              <input className="glass-input w-full" type="number" min="0" value={form.floor_eggs}
-                onChange={e => setForm({ ...form, floor_eggs: e.target.value })} />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm text-lvf-muted mb-1">Notes</label>
-            <textarea className="glass-input w-full" rows={2} value={form.notes}
-              onChange={e => setForm({ ...form, notes: e.target.value })} />
-          </div>
-          <div className="flex gap-3 justify-end pt-2">
-            <button type="button" onClick={() => setEntryOpen(false)} className="glass-button-secondary">Cancel</button>
-            <button type="submit" disabled={submitting} className="glass-button-primary">{submitting ? 'Recording...' : 'Record'}</button>
-          </div>
-        </form>
-      </Modal>
 
-      {/* Bulk Entry Modal */}
-      <Modal isOpen={bulkOpen} onClose={() => setBulkOpen(false)} title="Bulk Production Entry" size="xl">
-        <form onSubmit={handleBulkSubmit} className="space-y-4">
-          <div className="flex items-center gap-4 mb-2">
-            <div>
-              <label className="block text-sm text-lvf-muted mb-1">Entry Date</label>
-              <input className="glass-input" type="date" required value={bulkForm.record_date}
-                onChange={e => setBulkForm({ ...bulkForm, record_date: e.target.value })} />
-            </div>
-            <p className="text-sm text-lvf-muted mt-5">
-              Enter production for all active layer flocks at once. Uncheck flocks you don't want to record.
-            </p>
-          </div>
-
-          <div className="glass-card overflow-hidden max-h-96 overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-lvf-dark">
-                <tr className="border-b border-lvf-border/30">
-                  <th className="text-left p-2 w-8"></th>
-                  <th className="text-left p-2">Flock</th>
-                  <th className="text-right p-2 w-24">Birds</th>
-                  <th className="text-right p-2 w-28">Eggs *</th>
-                  <th className="text-right p-2 w-20">%</th>
-                  <th className="text-right p-2 w-20">Cracked</th>
-                  <th className="text-right p-2 w-20">Floor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bulkForm.entries.map((entry, i) => {
-                  const pct = calcPct(entry.bird_count, entry.egg_count)
-                  return (
-                    <tr key={entry.flock_id} className={`border-b border-lvf-border/10 ${!entry._include ? 'opacity-40' : ''}`}>
-                      <td className="p-2">
-                        <input type="checkbox" checked={entry._include}
-                          onChange={e => updateBulkEntry(i, '_include', e.target.checked)} />
-                      </td>
-                      <td className="p-2 font-medium text-lvf-accent">{entry.flock_number}</td>
-                      <td className="p-2">
-                        <input className="glass-input w-full text-right" type="number" min="1"
-                          value={entry.bird_count}
-                          onChange={e => updateBulkEntry(i, 'bird_count', e.target.value)}
-                          disabled={!entry._include} />
-                      </td>
-                      <td className="p-2">
-                        <input className="glass-input w-full text-right" type="number" min="0"
-                          placeholder="Eggs"
-                          value={entry.egg_count}
-                          onChange={e => updateBulkEntry(i, 'egg_count', e.target.value)}
-                          disabled={!entry._include} />
-                      </td>
-                      <td className="p-2 text-center">
-                        <span className={`font-bold ${
-                          parseFloat(pct) >= 80 ? 'text-lvf-success' :
-                          parseFloat(pct) >= 60 ? 'text-lvf-warning' : 'text-lvf-danger'
-                        }`}>{entry.egg_count ? `${pct}%` : '—'}</span>
-                      </td>
-                      <td className="p-2">
-                        <input className="glass-input w-full text-right" type="number" min="0"
-                          value={entry.cracked}
-                          onChange={e => updateBulkEntry(i, 'cracked', e.target.value)}
-                          disabled={!entry._include} />
-                      </td>
-                      <td className="p-2">
-                        <input className="glass-input w-full text-right" type="number" min="0"
-                          value={entry.floor_eggs}
-                          onChange={e => updateBulkEntry(i, 'floor_eggs', e.target.value)}
-                          disabled={!entry._include} />
-                      </td>
-                    </tr>
-                  )
-                })}
-                {bulkForm.entries.length === 0 && (
-                  <tr><td colSpan={7} className="text-center py-8 text-lvf-muted">No active layer flocks.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex gap-3 justify-end pt-2">
-            <button type="button" onClick={() => setBulkOpen(false)} className="glass-button-secondary">Cancel</button>
-            <button type="submit" disabled={submitting} className="glass-button-primary">
-              {submitting ? 'Recording...' : `Record ${bulkForm.entries.filter(e => e._include && e.egg_count).length} Entries`}
-            </button>
-          </div>
-        </form>
-      </Modal>
 
       {/* Weekly Records Section */}
       <div className="mt-8">
@@ -580,7 +325,7 @@ export default function Production() {
       {wizardOpen && (
         <WeeklyRecordWizard
           onClose={() => { setWizardOpen(false); setEditRecord(null) }}
-          onSaved={() => { load(); getWeeklyRecords().then(r => setWeeklyRecords(r.data)).catch(() => {}) }}
+          onSaved={() => { load(); getWeeklyRecords().then(r => setWeeklyRecords(Array.isArray(r.data) ? r.data : [])).catch(() => {}) }}
           editRecord={editRecord}
           showToast={showToast}
         />

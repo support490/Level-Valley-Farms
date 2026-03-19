@@ -15,7 +15,7 @@ export default function BarnInventoryTab({ showToast }) {
   const [submitting, setSubmitting] = useState(false)
 
   const load = () => {
-    getBarnInventory().then(res => setBarnData(res.data)).catch(() => {})
+    getBarnInventory().then(res => setBarnData(res.data || [])).catch(() => {})
   }
 
   useEffect(() => { load() }, [])
@@ -125,6 +125,16 @@ export default function BarnInventoryTab({ showToast }) {
                       {barn.flocks.map(f => (
                         <div key={f.flock_id} className="pallet-box">
                           <p className="text-lg font-bold leading-tight">{f.estimated_skids}</p>
+                          {f.weight_per_skid > 0 && (
+                            <p className="text-[10px] text-lvf-muted leading-tight">
+                              {f.weight_per_skid.toLocaleString()} lbs/skid
+                            </p>
+                          )}
+                          {f.in_transit_skids > 0 && (
+                            <span className="inline-block mt-0.5 px-1.5 py-0.5 text-[9px] font-semibold rounded-full bg-blue-500/20 text-blue-400 leading-none">
+                              {f.in_transit_skids} in transit
+                            </span>
+                          )}
                           <p className="text-[10px] text-lvf-muted leading-tight truncate max-w-[80px]">{f.flock_number}</p>
                         </div>
                       ))}

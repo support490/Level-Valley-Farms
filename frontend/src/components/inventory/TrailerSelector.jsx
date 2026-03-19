@@ -12,8 +12,8 @@ export default function TrailerSelector({ currentSkids = 0, onSelect }) {
   const [hooking, setHooking] = useState(false)
 
   const loadData = () => {
-    getTrucksWithTrailers().then(res => setTrucksData(res.data)).catch(() => {})
-    getEquipment({ equipment_type: 'trailer', active_only: true }).then(res => setAllTrailers(res.data)).catch(() => {})
+    getTrucksWithTrailers().then(res => setTrucksData(res.data || [])).catch(() => {})
+    getEquipment({ equipment_type: 'trailer', active_only: true }).then(res => setAllTrailers(res.data || [])).catch(() => {})
   }
 
   useEffect(() => { loadData() }, [])
@@ -52,7 +52,7 @@ export default function TrailerSelector({ currentSkids = 0, onSelect }) {
       await hookTrailer(selectedTruckId, hookingTrailerId)
       // Reload data and re-select
       const res = await getTrucksWithTrailers()
-      setTrucksData(res.data)
+      setTrucksData(res.data || [])
       const eqRes = await getEquipment({ equipment_type: 'trailer', active_only: true })
       setAllTrailers(eqRes.data)
       const updatedTruck = res.data.find(t => t.id === selectedTruckId)

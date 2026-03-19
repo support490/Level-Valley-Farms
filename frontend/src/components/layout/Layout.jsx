@@ -15,7 +15,7 @@ export default function Layout() {
   const loadNotifications = async () => {
     try {
       const res = await getNotifications({ unread_only: false })
-      setNotifications(res.data)
+      setNotifications(res.data || [])
     } catch {}
   }
 

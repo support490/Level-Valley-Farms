@@ -58,6 +58,7 @@ def _buyer_to_dict(buyer: Buyer) -> dict:
         "phone": buyer.phone,
         "email": buyer.email,
         "address": buyer.address,
+        "customer_type": buyer.customer_type,
         "notes": buyer.notes,
         "is_active": buyer.is_active,
         "created_at": buyer.created_at,
@@ -187,6 +188,21 @@ async def get_contracts_for_flock(db: AsyncSession, flock_id: str):
     return contracts
 
 
+async def get_flock_default_contract(db: AsyncSession, flock_id: str):
+    """Get the default (first active) contract for a flock via ContractFlockAssignment."""
+    result = await db.execute(
+        select(ContractFlockAssignment).where(
+            ContractFlockAssignment.flock_id == flock_id
+        )
+    )
+    assignments = result.scalars().all()
+    for a in assignments:
+        contract = await db.get(EggContract, a.contract_id)
+        if contract and contract.is_active:
+            return await _contract_to_dict(db, contract)
+    return None
+
+
 # ── Contract Intelligence ──
 
 async def get_contract_dashboard(db: AsyncSession):
@@ -200,36 +216,40 @@ async def get_contract_dashboard(db: AsyncSession):
     today = date.today().isoformat()
 
     for contract in contracts:
-        # Get shipment stats for this contract
+        # Get shipment stats — check both header-level and line-level contract_id
         ship_result = await db.execute(
             select(
                 func.count(func.distinct(Shipment.id)),
                 func.coalesce(func.sum(ShipmentLine.skids * ShipmentLine.dozens_per_skid), 0),
             )
-            .select_from(Shipment)
-            .join(ShipmentLine, ShipmentLine.shipment_id == Shipment.id)
+            .select_from(ShipmentLine)
+            .join(Shipment, ShipmentLine.shipment_id == Shipment.id)
             .where(
-                Shipment.contract_id == contract.id,
                 Shipment.status != ShipmentStatus.CANCELLED,
+                (ShipmentLine.contract_id == contract.id) | (
+                    ShipmentLine.contract_id.is_(None) & (Shipment.contract_id == contract.id)
+                ),
             )
         )
         row = ship_result.one()
         num_shipments = row[0] or 0
         volume_shipped = int(row[1] or 0)
 
-        # Revenue
+        # Revenue — same dual-source query
         rev_result = await db.execute(
             select(
                 func.coalesce(
                     func.sum(ShipmentLine.skids * ShipmentLine.dozens_per_skid * ShipmentLine.price_per_dozen), 0
                 )
             )
-            .select_from(Shipment)
-            .join(ShipmentLine, ShipmentLine.shipment_id == Shipment.id)
+            .select_from(ShipmentLine)
+            .join(Shipment, ShipmentLine.shipment_id == Shipment.id)
             .where(
-                Shipment.contract_id == contract.id,
                 Shipment.status != ShipmentStatus.CANCELLED,
                 ShipmentLine.price_per_dozen.isnot(None),
+                (ShipmentLine.contract_id == contract.id) | (
+                    ShipmentLine.contract_id.is_(None) & (Shipment.contract_id == contract.id)
+                ),
             )
         )
         total_revenue = float(rev_result.scalar() or 0)

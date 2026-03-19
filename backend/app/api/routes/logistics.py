@@ -10,6 +10,8 @@ from app.schemas.logistics import (
     DriverCreate, DriverUpdate, DriverResponse,
     CarrierCreate, CarrierUpdate, CarrierResponse,
     EggReturnCreate, EggReturnResponse,
+    ReceivePickupItem,
+    BuyerGradingReportCreate, BuyerGradingReportResponse,
 )
 from app.services import logistics_service
 
@@ -125,6 +127,18 @@ async def complete_pickup(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/pickups/{job_id}/receive", response_model=PickupJobResponse)
+async def receive_pickup(
+    job_id: str,
+    items: List[ReceivePickupItem],
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await logistics_service.receive_pickup_at_warehouse(db, job_id, items)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/pickups/{job_id}/cancel")
 async def cancel_pickup(job_id: str, db: AsyncSession = Depends(get_db)):
     try:
@@ -234,3 +248,31 @@ async def create_return(data: EggReturnCreate, db: AsyncSession = Depends(get_db
         return await logistics_service.create_egg_return(db, data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Buyer Grading Reports ──
+
+@router.post("/grading-reports", response_model=BuyerGradingReportResponse, status_code=201)
+async def create_grading_report(data: BuyerGradingReportCreate, db: AsyncSession = Depends(get_db)):
+    try:
+        return await logistics_service.create_grading_report(db, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/grading-reports", response_model=List[BuyerGradingReportResponse])
+async def list_grading_reports(db: AsyncSession = Depends(get_db)):
+    return await logistics_service.get_grading_reports(db)
+
+
+@router.get("/grading-reports/{report_id}", response_model=BuyerGradingReportResponse)
+async def get_grading_report(report_id: str, db: AsyncSession = Depends(get_db)):
+    report = await logistics_service.get_grading_report(db, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Grading report not found")
+    return report
+
+
+@router.get("/grading-reports/flock/{flock_id}/history")
+async def get_flock_grade_history(flock_id: str, db: AsyncSession = Depends(get_db)):
+    return await logistics_service.get_flock_grade_history(db, flock_id)

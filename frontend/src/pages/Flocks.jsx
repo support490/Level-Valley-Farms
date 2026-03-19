@@ -64,16 +64,20 @@ export default function Flocks() {
   })
 
   const load = async () => {
-    const params = {}
-    if (statusFilter) params.status = statusFilter
-    if (typeFilter) params.flock_type = typeFilter
-    const [flocksRes, barnsRes, growersRes, contractsRes] = await Promise.all([
-      getFlocks(params), getBarns(), getGrowers(), getContracts({ active_only: true })
-    ])
-    setFlocks(flocksRes.data)
-    setBarns(barnsRes.data)
-    setGrowers(growersRes.data)
-    setContracts(contractsRes.data)
+    try {
+      const params = {}
+      if (statusFilter) params.status = statusFilter
+      if (typeFilter) params.flock_type = typeFilter
+      const [flocksRes, barnsRes, growersRes, contractsRes] = await Promise.all([
+        getFlocks(params), getBarns(), getGrowers(), getContracts({ active_only: true })
+      ])
+      setFlocks(flocksRes.data || [])
+      setBarns(barnsRes.data || [])
+      setGrowers(growersRes.data || [])
+      setContracts(contractsRes.data || [])
+    } catch (err) {
+      showToast('Error loading data', 'error')
+    }
   }
 
   useEffect(() => { load() }, [statusFilter, typeFilter])
@@ -273,7 +277,7 @@ export default function Flocks() {
   const openDetail = async (flock) => {
     setSelectedFlock(flock)
     const res = await getFlockPlacements(flock.id)
-    setPlacements(res.data)
+    setPlacements(res.data || [])
     setDetailOpen(true)
   }
 
@@ -335,10 +339,10 @@ export default function Flocks() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold">Flocks</h2>
         <div className="flex gap-2">
-          <button onClick={() => setMortalityOpen(true)} className="glass-button-secondary flex items-center gap-2">
+          <button onClick={() => { setMortalityForm({ flock_id: '', record_date: new Date().toISOString().split('T')[0], deaths: 0, culls: 0, cause: '', notes: '' }); setMortalityOpen(true) }} className="glass-button-secondary flex items-center gap-2">
             <Skull size={16} /> Mortality
           </button>
-          <button onClick={() => setPurchaseOpen(true)} className="glass-button-secondary flex items-center gap-2">
+          <button onClick={() => { setPurchaseForm({ bird_color: 'brown', breed: '', hatch_date: '', arrival_date: '', bird_count: '', cost_per_bird: '', barn_id: '', flock_number: '', notes: '' }); setPurchaseOpen(true) }} className="glass-button-secondary flex items-center gap-2">
             <ShoppingCart size={16} /> Buy Pullets
           </button>
           <button onClick={() => setCreateOpen(true)} className="glass-button-primary flex items-center gap-2">

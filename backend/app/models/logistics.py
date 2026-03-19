@@ -73,6 +73,7 @@ class PickupJob(Base, TimestampMixin):
     driver_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("drivers.id"), index=True)
     trailer_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
     status: Mapped[PickupStatus] = mapped_column(default=PickupStatus.PENDING)
+    arrival_status: Mapped[Optional[str]] = mapped_column(String(20), default="pending")
     completed_date: Mapped[Optional[str]] = mapped_column(String(10))
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
@@ -90,7 +91,9 @@ class PickupItem(Base, TimestampMixin):
     flock_id: Mapped[str] = mapped_column(String(36), ForeignKey("flocks.id"), nullable=False, index=True)
     skids_estimated: Mapped[int] = mapped_column(Integer, default=0)
     skids_actual: Mapped[Optional[int]] = mapped_column(Integer)
+    skids_received: Mapped[Optional[int]] = mapped_column(Integer)
     grade: Mapped[Optional[str]] = mapped_column(String(50))
+    condition: Mapped[Optional[str]] = mapped_column(String(50))
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
     pickup_job: Mapped["PickupJob"] = relationship("PickupJob", back_populates="items")
@@ -108,6 +111,7 @@ class Shipment(Base, TimestampMixin):
     contract_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("egg_contracts.id"), index=True)
     ship_date: Mapped[str] = mapped_column(String(10), nullable=False)
     buyer: Mapped[str] = mapped_column(String(200), nullable=False)
+    buyer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("buyers.id"), index=True)
     carrier: Mapped[Optional[str]] = mapped_column(String(200))
     carrier_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("carriers.id"), index=True)
     destination: Mapped[Optional[str]] = mapped_column(Text)
@@ -130,6 +134,7 @@ class ShipmentLine(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     shipment_id: Mapped[str] = mapped_column(String(36), ForeignKey("shipments.id"), nullable=False, index=True)
     flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"), index=True)
+    contract_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("egg_contracts.id"), index=True)
     grade: Mapped[str] = mapped_column(String(50), nullable=False)
     skids: Mapped[int] = mapped_column(Integer, nullable=False)
     dozens_per_skid: Mapped[int] = mapped_column(Integer, default=900)
@@ -138,6 +143,7 @@ class ShipmentLine(Base, TimestampMixin):
 
     shipment: Mapped["Shipment"] = relationship("Shipment", back_populates="lines")
     flock: Mapped[Optional["Flock"]] = relationship("Flock")
+    contract: Mapped[Optional["EggContract"]] = relationship("EggContract")
 
 
 class EggReturn(Base, TimestampMixin):
@@ -171,4 +177,36 @@ class EggReturnLine(Base, TimestampMixin):
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
     egg_return: Mapped["EggReturn"] = relationship("EggReturn", back_populates="lines")
+    flock: Mapped[Optional["Flock"]] = relationship("Flock")
+
+
+class BuyerGradingReport(Base, TimestampMixin):
+    """A grading report submitted by a buyer for a shipment."""
+    __tablename__ = "buyer_grading_reports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    shipment_id: Mapped[str] = mapped_column(String(36), ForeignKey("shipments.id"), nullable=False, index=True)
+    buyer_id: Mapped[str] = mapped_column(String(36), ForeignKey("buyers.id"), nullable=False, index=True)
+    report_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    shipment: Mapped["Shipment"] = relationship("Shipment")
+    lines: Mapped[List["BuyerGradingReportLine"]] = relationship(
+        "BuyerGradingReportLine", back_populates="grading_report", cascade="all, delete-orphan"
+    )
+
+
+class BuyerGradingReportLine(Base, TimestampMixin):
+    """Line item within a buyer grading report."""
+    __tablename__ = "buyer_grading_report_lines"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    grading_report_id: Mapped[str] = mapped_column(String(36), ForeignKey("buyer_grading_reports.id"), nullable=False, index=True)
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"), index=True)
+    grade: Mapped[str] = mapped_column(String(50), nullable=False)
+    count_dozens: Mapped[int] = mapped_column(Integer, default=0)
+    percentage: Mapped[Optional[float]] = mapped_column(Float)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    grading_report: Mapped["BuyerGradingReport"] = relationship("BuyerGradingReport", back_populates="lines")
     flock: Mapped[Optional["Flock"]] = relationship("Flock")

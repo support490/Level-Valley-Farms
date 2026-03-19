@@ -167,7 +167,10 @@ async def create_recurring(data: RecurringEntryCreate, db: AsyncSession = Depend
     try:
         entry = await accounting_service.create_recurring_entry(db, data)
         entries = await accounting_service.get_recurring_entries(db, False)
-        return next(e for e in entries if e["id"] == entry.id)
+        result = next((e for e in entries if e["id"] == entry.id), None)
+        if not result:
+            raise HTTPException(status_code=500, detail="Entry created but not found in response")
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -178,7 +181,10 @@ async def update_recurring(entry_id: str, data: RecurringEntryUpdate, db: AsyncS
     if not entry:
         raise HTTPException(status_code=404, detail="Recurring entry not found")
     entries = await accounting_service.get_recurring_entries(db, False)
-    return next(e for e in entries if e["id"] == entry.id)
+    result = next((e for e in entries if e["id"] == entry.id), None)
+    if not result:
+        raise HTTPException(status_code=500, detail="Entry updated but not found in response")
+    return result
 
 
 @router.delete("/recurring/{entry_id}")

@@ -19,6 +19,8 @@ class GrowerCreate(BaseModel):
     contact_phone: Optional[str] = Field(None, max_length=50)
     contact_email: Optional[str] = Field(None, max_length=200)
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     barns: Optional[List[BarnInline]] = None
 
     @field_validator("name", "location", mode="before")
@@ -38,6 +40,8 @@ class GrowerUpdate(BaseModel):
     contact_phone: Optional[str] = Field(None, max_length=50)
     contact_email: Optional[str] = Field(None, max_length=200)
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     is_active: Optional[bool] = None
 
     @field_validator("name", "location", mode="before")
@@ -73,6 +77,8 @@ class GrowerResponse(BaseModel):
     contact_phone: Optional[str]
     contact_email: Optional[str]
     notes: Optional[str]
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime

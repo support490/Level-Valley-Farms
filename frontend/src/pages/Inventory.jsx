@@ -18,7 +18,7 @@ export default function Inventory() {
         getInventorySummary(),
         getInventoryValue().catch(() => ({ data: null })),
       ])
-      setSummary(summaryRes.data)
+      setSummary(summaryRes.data || [])
       setInvValue(valueRes.data)
     } catch {}
   }

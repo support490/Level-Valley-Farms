@@ -29,6 +29,7 @@ export default function Growers() {
   const [editingBarn, setEditingBarn] = useState(null)
   const [barnGrowerId, setBarnGrowerId] = useState(null)
   const [growerForm, setGrowerForm] = useState(emptyGrowerForm)
+  const [growerCoords, setGrowerCoords] = useState(null) // { lat, lng } from address autocomplete
   const [barnForm, setBarnForm] = useState(emptyBarnForm)
   const [expandedGrowers, setExpandedGrowers] = useState({})
   const [search, setSearch] = useState('')
@@ -37,8 +38,12 @@ export default function Growers() {
   const { isLoaded: mapsLoaded } = useGoogleMaps()
 
   const load = async () => {
-    const res = await getGrowers()
-    setGrowers(res.data)
+    try {
+      const res = await getGrowers()
+      setGrowers(res.data || [])
+    } catch (err) {
+      showToast('Error loading growers', 'error')
+    }
   }
 
   useEffect(() => { load() }, [])
@@ -336,6 +341,7 @@ export default function Growers() {
               <AddressAutocomplete
                 value={growerForm.location}
                 onChange={val => setGrowerForm({ ...growerForm, location: val })}
+                onSelect={(addr, lat, lng) => setGrowerCoords({ lat, lng })}
                 placeholder="Search address..."
                 className="glass-input w-full"
               />
@@ -450,24 +456,39 @@ export default function Growers() {
               <label className="block text-sm text-lvf-muted mb-1">
                 Barn Location <span className="text-xs">(click map to place pin)</span>
               </label>
-              <GoogleMap
-                mapContainerStyle={barnMapStyle}
-                center={barnForm.latitude && barnForm.longitude
-                  ? { lat: barnForm.latitude, lng: barnForm.longitude }
-                  : PA_CENTER}
-                zoom={barnForm.latitude ? 15 : 8}
-                mapTypeId="satellite"
-                onClick={(e) => setBarnForm({ ...barnForm, latitude: e.latLng.lat(), longitude: e.latLng.lng() })}
-                options={{ streetViewControl: false, mapTypeControl: false, fullscreenControl: false }}
-              >
-                {barnForm.latitude && barnForm.longitude && (
-                  <Marker
-                    position={{ lat: barnForm.latitude, lng: barnForm.longitude }}
-                    draggable
-                    onDragEnd={(e) => setBarnForm({ ...barnForm, latitude: e.latLng.lat(), longitude: e.latLng.lng() })}
-                  />
-                )}
-              </GoogleMap>
+              <div className="relative">
+                <GoogleMap
+                  mapContainerStyle={barnMapStyle}
+                  center={barnForm.latitude && barnForm.longitude
+                    ? { lat: barnForm.latitude, lng: barnForm.longitude }
+                    : growerCoords || PA_CENTER}
+                  zoom={barnForm.latitude ? 15 : growerCoords ? 14 : 8}
+                  onClick={(e) => setBarnForm({ ...barnForm, latitude: e.latLng.lat(), longitude: e.latLng.lng() })}
+                  options={{ mapTypeId: 'satellite', streetViewControl: false, mapTypeControl: false, fullscreenControl: false }}
+                  onLoad={(m) => { window._growerBarnPinMap = m }}
+                >
+                  {barnForm.latitude && barnForm.longitude && (
+                    <Marker
+                      position={{ lat: barnForm.latitude, lng: barnForm.longitude }}
+                      draggable
+                      onDragEnd={(e) => setBarnForm({ ...barnForm, latitude: e.latLng.lat(), longitude: e.latLng.lng() })}
+                    />
+                  )}
+                </GoogleMap>
+                <button
+                  type="button"
+                  title="Zoom to my location"
+                  className="absolute top-2 right-2 bg-white/90 hover:bg-white text-gray-700 p-1.5 rounded shadow text-xs"
+                  onClick={() => {
+                    navigator.geolocation?.getCurrentPosition((pos) => {
+                      const m = window._growerBarnPinMap
+                      if (m) { m.panTo({ lat: pos.coords.latitude, lng: pos.coords.longitude }); m.setZoom(16) }
+                    })
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg>
+                </button>
+              </div>
               {barnForm.latitude && (
                 <p className="text-[10px] text-lvf-muted mt-1">
                   {barnForm.latitude.toFixed(5)}, {barnForm.longitude.toFixed(5)}

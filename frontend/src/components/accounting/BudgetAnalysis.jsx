@@ -66,7 +66,7 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
         ...Object.fromEntries(['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].map(m => [m, parseFloat(l.annual_amount) / 12]))
       }))
       await createBudget({ name: budgetForm.name, year: parseInt(budgetForm.year), lines })
-      showToast('Budget created'); setBudgetOpen(false); getBudgets().then(r => setBudgets(r.data))
+      showToast('Budget created'); setBudgetOpen(false); getBudgets().then(r => setBudgets(r.data || []))
     } catch (err) { showToast(err.response?.data?.detail || 'Error', 'error') }
     finally { setSubmitting(false) }
   }
@@ -77,7 +77,7 @@ export default function BudgetAnalysis({ subTab = 'kpis' }) {
     setSubmitting(true)
     try {
       await createDepreciation({ ...depForm, purchase_cost: parseFloat(depForm.purchase_cost), useful_life_months: parseInt(depForm.useful_life_months), salvage_value: parseFloat(depForm.salvage_value) || 0 })
-      showToast('Asset added'); setDepOpen(false); getDepreciation().then(r => setDepreciation(r.data))
+      showToast('Asset added'); setDepOpen(false); getDepreciation().then(r => setDepreciation(r.data || []))
     } catch (err) { showToast(err.response?.data?.detail || 'Error', 'error') }
     finally { setSubmitting(false) }
   }

@@ -11,9 +11,21 @@ import Modal from '../common/Modal'
 import ConfirmDialog from '../common/ConfirmDialog'
 
 const DOZENS_PER_SKID = 900
-const LBS_PER_SKID = 37800
 
 const TAB_MAP = { floor: 'floor', receiving: 'log', sales: 'sales', grades: 'grades' }
+
+const fmtPeriod = (start, end) => {
+  if (!start || !end) return ''
+  const s = new Date(start + 'T00:00:00')
+  const e = new Date(end + 'T00:00:00')
+  return `${s.getMonth()+1}/${s.getDate()}\u2013${e.getMonth()+1}/${e.getDate()}`
+}
+
+const CONDITION_BADGE = {
+  clean:   'bg-green-500/20 text-green-400',
+  dirty:   'bg-amber-500/20 text-amber-400',
+  cracked: 'bg-red-500/20 text-red-400',
+}
 
 export default function WarehouseTab({ showToast, forceSubTab = null }) {
   const [subTab, setSubTab] = useState(forceSubTab ? (TAB_MAP[forceSubTab] || forceSubTab) : 'floor')
@@ -46,12 +58,12 @@ export default function WarehouseTab({ showToast, forceSubTab = null }) {
         getInventoryByFlock().catch(() => ({ data: [] })),
         getInventoryAging(7).catch(() => ({ data: [] })),
       ])
-      setFlocks(flocksRes.data)
-      setRecords(recordsRes.data)
-      setSales(salesRes.data)
-      setByFlock(byFlockRes.data)
-      setAging(agingRes.data)
-      const grades = gradesRes.data.map(g => ({ value: g.value, label: g.label, id: g.id }))
+      setFlocks(flocksRes.data || [])
+      setRecords(recordsRes.data || [])
+      setSales(salesRes.data || [])
+      setByFlock(byFlockRes.data || [])
+      setAging(agingRes.data || [])
+      const grades = (gradesRes.data || []).map(g => ({ value: g.value, label: g.label, id: g.id }))
       setGradeOptions(grades)
       if (grades.length > 0 && !receiveForm.grade) {
         setReceiveForm(prev => ({ ...prev, grade: grades[0].value }))
@@ -132,7 +144,7 @@ export default function WarehouseTab({ showToast, forceSubTab = null }) {
       const result = await recordSale({ ...saleForm, skids_sold: skids, price_per_dozen: price })
       showToast?.(`Sale recorded: $${result.data.total_amount.toFixed(2)}`)
       setSaleOpen(false)
-      setSaleForm(prev => ({ ...prev, buyer: '', skids_sold: '', price_per_dozen: '', notes: '' }))
+      setSaleForm(prev => ({ ...prev, flock_id: '', buyer: '', grade: '', skids_sold: '', price_per_dozen: '', notes: '' }))
       load()
     } catch (err) {
       showToast?.(err.response?.data?.detail || 'Error', 'error')
@@ -225,10 +237,11 @@ export default function WarehouseTab({ showToast, forceSubTab = null }) {
                         {f.grades.map(g => {
                           const days = agingMap[`${f.flock_id}_${g.grade}`]
                           const age = ageBadge(days)
-                          const weight = g.skids_on_hand * LBS_PER_SKID
+                          const wps = g.weight_per_skid || f.weight_per_skid || 37800
+                          const period = fmtPeriod(g.production_period_start, g.production_period_end)
                           return Array.from({ length: Math.min(g.skids_on_hand, 40) }, (_, i) => (
                             <div key={`${g.grade}-${i}`} className="skid-rect group relative"
-                                 title={`${g.grade_label} — ${age.label} — ${(LBS_PER_SKID).toLocaleString()} lbs`}>
+                                 title={`${g.grade_label} — ${age.label}${period ? ` — ${period}` : ''} — ${wps.toLocaleString()} lbs${g.condition ? ` — ${g.condition}` : ''}`}>
                               {i === 0 && (
                                 <div className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-lvf-card"
                                      style={{ background: days == null || days <= 7 ? '#22c55e' : days <= 14 ? '#eab308' : '#ef4444' }} />
@@ -241,16 +254,21 @@ export default function WarehouseTab({ showToast, forceSubTab = null }) {
                           )
                         })}
                       </div>
-                      <div className="flex gap-3 mt-1.5">
+                      <div className="flex gap-3 mt-1.5 flex-wrap">
                         {f.grades.map(g => {
                           const days = agingMap[`${f.flock_id}_${g.grade}`]
                           const age = ageBadge(days)
+                          const wps = g.weight_per_skid || f.weight_per_skid || 37800
+                          const period = fmtPeriod(g.production_period_start, g.production_period_end)
                           return (
                             <div key={g.grade} className="flex items-center gap-1.5 text-[10px]">
                               <span className="text-lvf-muted">{g.grade_label}:</span>
                               <span className="font-medium">{g.skids_on_hand}</span>
-                              <span className={`px-1 py-px rounded text-[9px] font-medium ${age.cls}`}>{age.label}</span>
-                              <span className="text-lvf-muted font-mono">{(g.skids_on_hand * LBS_PER_SKID).toLocaleString()} lbs</span>
+                              <span className={`px-1 py-px rounded text-[9px] font-medium ${age.cls}`}>{age.label}{period ? ` ${period}` : ''}</span>
+                              {g.condition && (
+                                <span className={`px-1 py-px rounded text-[9px] font-medium ${CONDITION_BADGE[g.condition] || 'bg-white/10 text-lvf-muted'}`}>{g.condition}</span>
+                              )}
+                              <span className="text-lvf-muted font-mono">{(g.skids_on_hand * wps).toLocaleString()} lbs</span>
                             </div>
                           )
                         })}

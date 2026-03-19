@@ -102,6 +102,7 @@ class MortalityRecord(Base, TimestampMixin):
     culls: Mapped[int] = mapped_column(Integer, default=0)
     cause: Mapped[Optional[str]] = mapped_column(String(200))
     notes: Mapped[Optional[str]] = mapped_column(Text)
+    weekly_record_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
 
     flock: Mapped["Flock"] = relationship("Flock", back_populates="mortality_records")
 
@@ -119,5 +120,6 @@ class ProductionRecord(Base, TimestampMixin):
     cracked: Mapped[int] = mapped_column(Integer, default=0)
     floor_eggs: Mapped[int] = mapped_column(Integer, default=0)
     notes: Mapped[Optional[str]] = mapped_column(Text)
+    weekly_record_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
 
     flock: Mapped["Flock"] = relationship("Flock", back_populates="production_records")

@@ -15,7 +15,10 @@ async def list_budgets(year: Optional[int] = Query(None), db: AsyncSession = Dep
 
 @router.post("/budgets", status_code=201)
 async def create_budget(data: dict, db: AsyncSession = Depends(get_db)):
-    return await budget_service.create_budget(db, data)
+    try:
+        return await budget_service.create_budget(db, data)
+    except (ValueError, KeyError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/budget-variance")
@@ -35,7 +38,10 @@ async def list_depreciation(db: AsyncSession = Depends(get_db)):
 
 @router.post("/depreciation", status_code=201)
 async def create_depreciation(data: dict, db: AsyncSession = Depends(get_db)):
-    return await budget_service.create_depreciation(db, data)
+    try:
+        return await budget_service.create_depreciation(db, data)
+    except (ValueError, KeyError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/break-even")

@@ -45,14 +45,16 @@ export default function RecurringEntries() {
   })
 
   const load = async () => {
-    const [entriesRes, accountsRes, flocksRes] = await Promise.all([
-      getRecurringEntries({ active_only: false }),
-      getAccounts(),
-      getFlocks({ status: 'active' }),
-    ])
-    setEntries(entriesRes.data)
-    setAccounts(accountsRes.data)
-    setFlocks(flocksRes.data)
+    try {
+      const [entriesRes, accountsRes, flocksRes] = await Promise.all([
+        getRecurringEntries({ active_only: false }),
+        getAccounts(),
+        getFlocks({ status: 'active' }),
+      ])
+      setEntries(entriesRes.data || [])
+      setAccounts(accountsRes.data || [])
+      setFlocks(flocksRes.data || [])
+    } catch {}
   }
 
   useEffect(() => { load() }, [])

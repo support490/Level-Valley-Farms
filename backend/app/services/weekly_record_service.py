@@ -1,9 +1,10 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete, func
 from datetime import date
 
-from app.models.farm import Barn
-from app.models.flock import Flock
+from app.models.farm import Barn, FlockPlacement
+from app.models.flock import Flock, MortalityRecord, ProductionRecord
+from app.models.inventory import EggInventory
 from app.models.weekly_record import (
     WeeklyRecord, WeeklyRecordStatus,
     WeeklyProductionLog, WeeklyFeedLog,
@@ -12,6 +13,8 @@ from app.models.weekly_record import (
     PitLog, CoolerTempLog,
 )
 from app.schemas.weekly_record import WeeklyRecordCreate, WeeklyRecordUpdate
+
+EGGS_PER_SKID = 10800  # 900 dozen * 12
 
 
 def _compute_summaries(record: WeeklyRecord):
@@ -77,6 +80,141 @@ def _sync_sub_logs(record: WeeklyRecord, data, log_attr: str, model_class, entri
         getattr(record, log_attr).append(obj)
 
 
+async def _sync_to_flock(db: AsyncSession, record: WeeklyRecord):
+    """When a record is submitted, create MortalityRecord/ProductionRecord entries and update flock counts."""
+    flock = await db.get(Flock, record.flock_id)
+    if not flock:
+        return
+
+    total_loss = 0
+    for pl in record.production_logs:
+        deaths = pl.mortality_count or 0
+        culls = pl.cull_count or 0
+        if deaths > 0 or culls > 0:
+            mr = MortalityRecord(
+                flock_id=flock.id,
+                record_date=pl.date,
+                deaths=deaths,
+                culls=culls,
+                cause=pl.mortality_reason or pl.cull_reason or None,
+                weekly_record_id=record.id,
+            )
+            db.add(mr)
+            total_loss += deaths + culls
+
+        eggs = pl.egg_production or 0
+        if eggs > 0:
+            bird_count = flock.current_bird_count - total_loss + deaths + culls  # count before this day's loss
+            pct = round(eggs / bird_count * 100, 2) if bird_count > 0 else 0
+            pr = ProductionRecord(
+                flock_id=flock.id,
+                record_date=pl.date,
+                bird_count=bird_count,
+                egg_count=eggs,
+                production_pct=pct,
+                weekly_record_id=record.id,
+            )
+            db.add(pr)
+
+    if total_loss > 0:
+        flock.current_bird_count -= total_loss
+
+        # Update placement and barn counts
+        result = await db.execute(
+            select(FlockPlacement)
+            .where(FlockPlacement.flock_id == flock.id, FlockPlacement.is_current == True)
+            .order_by(FlockPlacement.placed_date.desc())
+        )
+        placement = result.scalars().first()
+        if placement:
+            placement.bird_count -= total_loss
+            barn = await db.get(Barn, placement.barn_id)
+            if barn:
+                barn.current_bird_count -= total_loss
+
+
+async def _revert_flock_sync(db: AsyncSession, record: WeeklyRecord):
+    """When a submitted record is reverted to draft, undo all synced records and restore counts."""
+    # Sum up what was synced
+    mort_result = await db.execute(
+        select(MortalityRecord).where(MortalityRecord.weekly_record_id == record.id)
+    )
+    mort_records = mort_result.scalars().all()
+    total_loss = sum((m.deaths + m.culls) for m in mort_records)
+
+    # Delete synced records
+    await db.execute(delete(MortalityRecord).where(MortalityRecord.weekly_record_id == record.id))
+    await db.execute(delete(ProductionRecord).where(ProductionRecord.weekly_record_id == record.id))
+
+    if total_loss > 0:
+        flock = await db.get(Flock, record.flock_id)
+        if flock:
+            flock.current_bird_count += total_loss
+
+            result = await db.execute(
+                select(FlockPlacement)
+                .where(FlockPlacement.flock_id == flock.id, FlockPlacement.is_current == True)
+                .order_by(FlockPlacement.placed_date.desc())
+            )
+            placement = result.scalars().first()
+            if placement:
+                placement.bird_count += total_loss
+                barn = await db.get(Barn, placement.barn_id)
+                if barn:
+                    barn.current_bird_count += total_loss
+
+
+async def _sync_barn_inventory(db: AsyncSession, record: WeeklyRecord):
+    """When a record is submitted, create barn EggInventory for the production period."""
+    total_eggs = sum(p.egg_production for p in record.production_logs if p.egg_production)
+    if total_eggs <= 0:
+        return
+
+    calculated_skids = round(total_eggs / EGGS_PER_SKID)
+
+    # Compute weight per skid: avg_case_weight * 60 (60 cases/skid), fallback 37800
+    weight_per_skid = 37800.0
+    if record.avg_case_weight:
+        weight_per_skid = round(float(record.avg_case_weight) * 60, 2)
+
+    skids_in = calculated_skids if calculated_skids > 0 else 0
+
+    # Get current on-hand for ungraded
+    on_hand_result = await db.execute(
+        select(EggInventory.skids_on_hand)
+        .where(
+            EggInventory.flock_id == record.flock_id,
+            EggInventory.grade == "ungraded",
+        )
+        .order_by(EggInventory.record_date.desc(), EggInventory.created_at.desc())
+        .limit(1)
+    )
+    current_on_hand = on_hand_result.scalar_one_or_none() or 0
+
+    inv = EggInventory(
+        flock_id=record.flock_id,
+        record_date=record.end_date,
+        grade="ungraded",
+        skids_in=skids_in,
+        skids_out=0,
+        skids_on_hand=current_on_hand + skids_in,
+        dozens_per_skid=900,
+        weight_per_skid=weight_per_skid,
+        production_period_start=record.start_date,
+        production_period_end=record.end_date,
+        weekly_record_id=record.id,
+        notes=f"Auto-created from weekly record {record.start_date} to {record.end_date}",
+    )
+    db.add(inv)
+
+
+async def _revert_barn_inventory(db: AsyncSession, record: WeeklyRecord):
+    """When reverting to draft, delete inventory records created by this weekly record."""
+    await db.execute(
+        delete(EggInventory).where(EggInventory.weekly_record_id == record.id)
+    )
+
+
 async def create_weekly_record(db: AsyncSession, data: WeeklyRecordCreate) -> WeeklyRecord:
     flock = await db.get(Flock, data.flock_id)
     if not flock:
@@ -112,6 +250,10 @@ async def create_weekly_record(db: AsyncSession, data: WeeklyRecordCreate) -> We
         _sync_sub_logs(record, data, "cooler_temp_logs", CoolerTempLog, data.cooler_temp_logs)
 
         _compute_summaries(record)
+
+        if record.status == WeeklyRecordStatus.SUBMITTED:
+            await _sync_to_flock(db, record)
+            await _sync_barn_inventory(db, record)
 
         await db.commit()
         await db.refresh(record)
@@ -227,7 +369,15 @@ async def update_weekly_record(db: AsyncSession, record_id: str, data: WeeklyRec
     if record.status == WeeklyRecordStatus.SUBMITTED and (data.status is None or data.status != "draft"):
         raise ValueError("Cannot edit a submitted record. Change status back to draft first.")
 
+    was_submitted = record.status == WeeklyRecordStatus.SUBMITTED
+    new_status = WeeklyRecordStatus(data.status) if data.status is not None else record.status
+
     try:
+        # If reverting from submitted to draft, undo flock sync + barn inventory
+        if was_submitted and new_status == WeeklyRecordStatus.DRAFT:
+            await _revert_flock_sync(db, record)
+            await _revert_barn_inventory(db, record)
+
         # Update header fields
         for field in ["grower_name", "start_date", "end_date", "starting_bird_count", "bird_weight", "comments"]:
             val = getattr(data, field, None)
@@ -235,7 +385,7 @@ async def update_weekly_record(db: AsyncSession, record_id: str, data: WeeklyRec
                 setattr(record, field, val)
 
         if data.status is not None:
-            record.status = WeeklyRecordStatus(data.status)
+            record.status = new_status
 
         # Update sub-logs if provided
         await db.refresh(record, [
@@ -268,6 +418,11 @@ async def update_weekly_record(db: AsyncSession, record_id: str, data: WeeklyRec
             _sync_sub_logs(record, data, "cooler_temp_logs", CoolerTempLog, data.cooler_temp_logs)
 
         _compute_summaries(record)
+
+        # If newly submitted (was draft, now submitted), sync to flock + barn inventory
+        if not was_submitted and new_status == WeeklyRecordStatus.SUBMITTED:
+            await _sync_to_flock(db, record)
+            await _sync_barn_inventory(db, record)
 
         await db.commit()
         await db.refresh(record)

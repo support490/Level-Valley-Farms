@@ -38,7 +38,7 @@ export default function WarehouseShipping() {
         getInventorySummary(),
         getInventoryValue().catch(() => ({ data: null })),
       ])
-      setSummary(summaryRes.data)
+      setSummary(summaryRes.data || [])
       setInvValue(valueRes.data)
     } catch {}
   }

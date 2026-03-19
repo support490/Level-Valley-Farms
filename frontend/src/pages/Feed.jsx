@@ -66,15 +66,15 @@ export default function Feed() {
         getMedications(), getMedicationAdmins(), getPurchaseOrders(),
         getFlocks({ status: 'active' }), getBarns(),
       ])
-      setVendors(vendorsRes.data)
-      setDeliveries(deliveriesRes.data)
-      setFeedInv(invRes.data)
-      setConversion(convRes.data)
-      setMedications(medsRes.data)
-      setAdmins(adminsRes.data)
-      setPos(posRes.data)
-      setFlocks(flocksRes.data)
-      setBarns(barnsRes.data)
+      setVendors(vendorsRes.data || [])
+      setDeliveries(deliveriesRes.data || [])
+      setFeedInv(invRes.data || [])
+      setConversion(convRes.data || [])
+      setMedications(medsRes.data || [])
+      setAdmins(adminsRes.data || [])
+      setPos(posRes.data || [])
+      setFlocks(flocksRes.data || [])
+      setBarns(barnsRes.data || [])
     } catch { showToast('Error loading data', 'error') }
   }
 

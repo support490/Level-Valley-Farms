@@ -34,3 +34,15 @@ export const getBolPdfUrl = (id) => `/api/logistics/shipments/${id}/bol-pdf`
 export const getReturns = (params = {}) => api.get('/logistics/returns', { params })
 export const getReturn = (id) => api.get(`/logistics/returns/${id}`)
 export const createReturn = (data) => api.post('/logistics/returns', data)
+
+// Warehouse Receiving
+export const receivePickupAtWarehouse = (id, items) => api.post(`/logistics/pickups/${id}/receive`, items)
+
+// Buyer Grading Reports
+export const getGradingReports = () => api.get('/logistics/grading-reports')
+export const getGradingReport = (id) => api.get(`/logistics/grading-reports/${id}`)
+export const createGradingReport = (data) => api.post('/logistics/grading-reports', data)
+export const getFlockGradeHistory = (flockId) => api.get(`/logistics/grading-reports/flock/${flockId}/history`)
+
+// Flock default contract
+export const getFlockContract = (flockId) => api.get(`/contracts/flock/${flockId}/default`)

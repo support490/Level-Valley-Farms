@@ -40,10 +40,10 @@ export default function EnterBills({ onSaved }) {
     const load = async () => {
       try {
         const [acctRes, vendorRes] = await Promise.all([getAccounts(), getVendors()])
-        setAccounts(acctRes.data)
+        setAccounts(acctRes.data || [])
         setVendors(vendorRes.data || [])
       } catch {
-        try { const acctRes = await getAccounts(); setAccounts(acctRes.data) } catch {}
+        try { const acctRes = await getAccounts(); setAccounts(acctRes.data || []) } catch {}
       }
     }
     load()

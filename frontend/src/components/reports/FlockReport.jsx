@@ -7,6 +7,7 @@ import {
 import { getFlockReport } from '../../api/reports'
 import { getFlocks } from '../../api/flocks'
 import { getProductionChart } from '../../api/production'
+import { getFlockGradeHistory } from '../../api/logistics'
 import SearchSelect from '../common/SearchSelect'
 
 const PIE_COLORS = ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#818cf8', '#fb923c', '#a78bfa', '#22d3ee']
@@ -16,10 +17,11 @@ export default function FlockReport() {
   const [selectedFlock, setSelectedFlock] = useState(null)
   const [report, setReport] = useState(null)
   const [chartData, setChartData] = useState([])
+  const [gradeHistory, setGradeHistory] = useState([])
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    getFlocks().then(res => setFlocks(res.data))
+    getFlocks().then(res => setFlocks(res.data || []))
   }, [])
 
   const flockOptions = flocks.map(f => ({
@@ -41,6 +43,9 @@ export default function FlockReport() {
         production: p.production_pct,
         eggs: p.egg_count,
       })))
+
+      const gradeRes = await getFlockGradeHistory(flockId).catch(() => ({ data: [] }))
+      setGradeHistory(gradeRes.data || [])
     } finally {
       setLoading(false)
     }
@@ -49,7 +54,7 @@ export default function FlockReport() {
   const handleSelect = (opt) => {
     setSelectedFlock(opt)
     if (opt) loadReport(opt.value)
-    else { setReport(null); setChartData([]) }
+    else { setReport(null); setChartData([]); setGradeHistory([]) }
   }
 
   const fmt = (val) => `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -326,6 +331,39 @@ export default function FlockReport() {
               </ResponsiveContainer>
             </div>
           )}
+
+          {/* Buyer Grade History Chart */}
+          {gradeHistory.length > 0 && (() => {
+            const GRADE_COLORS = ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#818cf8', '#fb923c', '#a78bfa', '#22d3ee']
+            const gradeNames = [...new Set(gradeHistory.map(h => h.grade_label))]
+            const gradeDates = [...new Set(gradeHistory.map(h => h.report_date))].sort()
+            const gradeChartData = gradeDates.map(d => {
+              const row = { date: d }
+              gradeHistory.filter(h => h.report_date === d).forEach(h => { row[h.grade_label] = h.percentage })
+              return row
+            })
+            return (
+              <div className="glass-card p-6">
+                <h4 className="font-semibold mb-4 flex items-center gap-2">
+                  <ClipboardList size={18} className="text-lvf-accent" />
+                  Buyer Grade History
+                </h4>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={gradeChartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                      <XAxis dataKey="date" stroke="#94a3b8" tick={{ fontSize: 11 }} />
+                      <YAxis stroke="#94a3b8" tick={{ fontSize: 11 }} domain={[0, 100]} unit="%" />
+                      <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }} />
+                      {gradeNames.map((g, i) => (
+                        <Line key={g} type="monotone" dataKey={g} stroke={GRADE_COLORS[i % GRADE_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} name={g} />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Placement History */}
           <div className="glass-card p-6">

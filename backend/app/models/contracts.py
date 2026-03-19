@@ -24,6 +24,7 @@ class Buyer(Base, TimestampMixin):
     ship_to_address: Mapped[Optional[str]] = mapped_column(Text)
     terms: Mapped[Optional[str]] = mapped_column(String(50), default="Net 30")
     credit_limit: Mapped[Optional[Decimal]] = mapped_column(Numeric(15, 2))
+    customer_type: Mapped[Optional[str]] = mapped_column(String(50))
 
     contracts: Mapped[List["EggContract"]] = relationship("EggContract", back_populates="buyer_ref")
 

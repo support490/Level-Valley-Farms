@@ -11,11 +11,14 @@ import {
   getCarriers, createCarrier, updateCarrier,
   getReturns, createReturn,
   getPickupsCalendar,
+  receivePickupAtWarehouse,
+  getGradingReports, createGradingReport,
+  getFlockContract,
 } from '../api/logistics'
 import { getFlocks } from '../api/flocks'
 import { getBarns } from '../api/barns'
 import { getEggGrades, getInventorySummary } from '../api/inventory'
-import { getContracts } from '../api/contracts'
+import { getContracts, getBuyers } from '../api/contracts'
 import SearchSelect from '../components/common/SearchSelect'
 import Modal from '../components/common/Modal'
 import Toast from '../components/common/Toast'
@@ -55,6 +58,20 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
   const [submitting, setSubmitting] = useState(false)
   const { toast, showToast, hideToast } = useToast()
 
+  // Buyers & warehouse receiving
+  const [buyers, setBuyers] = useState([])
+  const [receiveOpen, setReceiveOpen] = useState(false)
+  const [receiveTarget, setReceiveTarget] = useState(null)
+  const [receiveItems, setReceiveItems] = useState([])
+
+  // Grading reports
+  const [gradingReports, setGradingReports] = useState([])
+  const [createGradingOpen, setCreateGradingOpen] = useState(false)
+  const [gradingForm, setGradingForm] = useState({
+    shipment_id: '', buyer_id: '', report_date: new Date().toISOString().split('T')[0],
+    notes: '', lines: [{ flock_id: '', grade: '', count_dozens: '', percentage: '' }],
+  })
+
   // Calendar state
   const [calendarDate, setCalendarDate] = useState(new Date())
   const [calendarView, setCalendarView] = useState('month')
@@ -68,9 +85,9 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
   })
   const [completeItems, setCompleteItems] = useState([])
   const [shipmentForm, setShipmentForm] = useState({
-    bol_number: '', contract_id: '', ship_date: new Date().toISOString().split('T')[0],
+    bol_number: '', buyer_id: '', ship_date: new Date().toISOString().split('T')[0],
     buyer: '', carrier: '', carrier_id: '', destination: '', freight_cost: '', notes: '',
-    lines: [{ flock_id: '', grade: '', skids: '', price_per_dozen: '' }],
+    lines: [{ flock_id: '', contract_id: '', grade: 'ungraded', skids: '', price_per_dozen: '' }],
   })
   const [deliveryForm, setDeliveryForm] = useState({
     delivered_date: new Date().toISOString().split('T')[0],
@@ -90,21 +107,23 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
 
   const load = async () => {
     try {
-      const [pickupsRes, shipmentsRes, flocksRes, barnsRes, gradesRes, contractsRes, summaryRes, driversRes, carriersRes, returnsRes] = await Promise.all([
+      const [pickupsRes, shipmentsRes, flocksRes, barnsRes, gradesRes, contractsRes, summaryRes, driversRes, carriersRes, returnsRes, buyersRes, gradingReportsRes] = await Promise.all([
         getPickups(), getShipments(), getFlocks({ status: 'active' }), getBarns(),
         getEggGrades(), getContracts({ active_only: true }), getInventorySummary(),
-        getDrivers(), getCarriers(), getReturns(),
+        getDrivers(), getCarriers(), getReturns(), getBuyers(), getGradingReports(),
       ])
-      setPickups(pickupsRes.data)
-      setShipments(shipmentsRes.data)
-      setFlocks(flocksRes.data)
-      setBarns(barnsRes.data)
-      setGrades(gradesRes.data)
-      setContracts(contractsRes.data)
-      setSummary(summaryRes.data)
-      setDrivers(driversRes.data)
-      setCarriers(carriersRes.data)
-      setReturns(returnsRes.data)
+      setPickups(pickupsRes.data || [])
+      setShipments(shipmentsRes.data || [])
+      setFlocks(flocksRes.data || [])
+      setBarns(barnsRes.data || [])
+      setGrades(gradesRes.data || [])
+      setContracts(contractsRes.data || [])
+      setSummary(summaryRes.data || [])
+      setDrivers(driversRes.data || [])
+      setCarriers(carriersRes.data || [])
+      setReturns(returnsRes.data || [])
+      setBuyers(buyersRes.data || [])
+      setGradingReports(gradingReportsRes.data || [])
     } catch (err) {
       showToast('Error loading data', 'error')
     }
@@ -127,7 +146,7 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
     const { start, end } = getCalendarRange()
     try {
       const res = await getPickupsCalendar(start, end)
-      setCalendarPickups(res.data)
+      setCalendarPickups(res.data || [])
     } catch (err) {
       // silent fail for calendar
     }
@@ -157,6 +176,7 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
   const driverOptions = drivers.filter(d => d.is_active).map(d => ({ value: d.id, label: `${d.name}${d.truck_type ? ` (${d.truck_type})` : ''}` }))
   const carrierOptions = carriers.filter(c => c.is_active).map(c => ({ value: c.id, label: c.name }))
   const shipmentOptions = shipments.map(s => ({ value: s.id, label: `${s.shipment_number} — ${s.buyer}` }))
+  const buyerOptions = buyers.filter(b => b.is_active).map(b => ({ value: b.id, label: b.name }))
 
   // ── Pickup Handlers ──
   const addPickupItem = () => {
@@ -243,7 +263,7 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
   // ── Shipment Handlers ──
   const addShipmentLine = () => {
     setShipmentForm(prev => ({
-      ...prev, lines: [...prev.lines, { flock_id: '', grade: '', skids: '', price_per_dozen: '' }]
+      ...prev, lines: [...prev.lines, { flock_id: '', contract_id: '', grade: 'ungraded', skids: '', price_per_dozen: '' }]
     }))
   }
   const updateShipmentLine = (idx, field, value) => {
@@ -256,16 +276,34 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
     setShipmentForm(prev => ({ ...prev, lines: prev.lines.filter((_, i) => i !== idx) }))
   }
 
-  const handleContractSelect = (opt) => {
-    const contract = contracts.find(c => c.id === opt?.value)
+  const handleBuyerSelect = (opt) => {
+    const buyer = buyers.find(b => b.id === opt?.value)
     setShipmentForm(prev => ({
-      ...prev, contract_id: opt?.value || '',
-      buyer: contract?.buyer || prev.buyer,
-      lines: prev.lines.map(line => ({
-        ...line, grade: contract?.grade || line.grade,
-        price_per_dozen: contract?.price_per_dozen || line.price_per_dozen,
-      }))
+      ...prev, buyer_id: opt?.value || '',
+      buyer: buyer?.name || prev.buyer,
     }))
+  }
+
+  const handleLineFlockSelect = async (idx, opt) => {
+    const flockId = opt?.value || ''
+    updateShipmentLine(idx, 'flock_id', flockId)
+    if (flockId) {
+      try {
+        const res = await getFlockContract(flockId)
+        if (res.data) {
+          setShipmentForm(prev => ({
+            ...prev,
+            lines: prev.lines.map((line, i) => i === idx ? {
+              ...line, flock_id: flockId,
+              contract_id: res.data.id || '',
+              price_per_dozen: res.data.price_per_dozen || line.price_per_dozen,
+            } : line)
+          }))
+        }
+      } catch (err) {
+        // No default contract found, that's fine
+      }
+    }
   }
 
   const handleCarrierSelect = (opt) => {
@@ -278,15 +316,15 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
   const handleCreateShipment = async (e) => {
     e.preventDefault()
     if (submitting) return
-    const validLines = shipmentForm.lines.filter(l => l.grade && parseInt(l.skids) > 0)
-    if (validLines.length === 0) { showToast('Add at least one line with grade and skids', 'error'); return }
+    const validLines = shipmentForm.lines.filter(l => parseInt(l.skids) > 0)
+    if (validLines.length === 0) { showToast('Add at least one line with skids', 'error'); return }
     if (!shipmentForm.bol_number.trim()) { showToast('BOL number is required', 'error'); return }
     if (!shipmentForm.buyer.trim()) { showToast('Buyer is required', 'error'); return }
     setSubmitting(true)
     try {
       await createShipment({
         bol_number: shipmentForm.bol_number,
-        contract_id: shipmentForm.contract_id || null,
+        buyer_id: shipmentForm.buyer_id || null,
         ship_date: shipmentForm.ship_date,
         buyer: shipmentForm.buyer,
         carrier: shipmentForm.carrier || null,
@@ -295,7 +333,8 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
         freight_cost: shipmentForm.freight_cost ? parseFloat(shipmentForm.freight_cost) : null,
         notes: shipmentForm.notes || null,
         lines: validLines.map(l => ({
-          flock_id: l.flock_id || null, grade: l.grade, skids: parseInt(l.skids),
+          flock_id: l.flock_id || null, grade: l.grade || 'ungraded', skids: parseInt(l.skids),
+          contract_id: l.contract_id || null,
           dozens_per_skid: 900,
           price_per_dozen: l.price_per_dozen ? parseFloat(l.price_per_dozen) : null,
         }))
@@ -303,9 +342,9 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
       showToast('Shipment created — inventory deducted')
       setCreateShipmentOpen(false)
       setShipmentForm({
-        bol_number: '', contract_id: '', ship_date: new Date().toISOString().split('T')[0],
+        bol_number: '', buyer_id: '', ship_date: new Date().toISOString().split('T')[0],
         buyer: '', carrier: '', carrier_id: '', destination: '', freight_cost: '', notes: '',
-        lines: [{ flock_id: '', grade: '', skids: '', price_per_dozen: '' }],
+        lines: [{ flock_id: '', contract_id: '', grade: 'ungraded', skids: '', price_per_dozen: '' }],
       })
       load()
     } catch (err) {
@@ -525,6 +564,77 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
     } finally { setSubmitting(false) }
   }
 
+  // ── Warehouse Receiving ──
+  const openReceive = (job) => {
+    setReceiveTarget(job)
+    setReceiveItems(job.items.map(item => ({
+      item_id: item.id, skids_received: item.skids_actual || 0,
+      condition: 'clean', barn_name: item.barn_name, flock_number: item.flock_number,
+      skids_actual: item.skids_actual,
+    })))
+    setReceiveOpen(true)
+  }
+
+  const handleReceivePickup = async () => {
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      await receivePickupAtWarehouse(receiveTarget.id, receiveItems.map(i => ({
+        item_id: i.item_id, skids_received: parseInt(i.skids_received), condition: i.condition,
+      })))
+      showToast('Pickup received at warehouse')
+      setReceiveOpen(false); setReceiveTarget(null); load()
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'Error', 'error')
+    } finally { setSubmitting(false) }
+  }
+
+  // ── Grading Report Handlers ──
+  const addGradingLine = () => {
+    setGradingForm(prev => ({
+      ...prev, lines: [...prev.lines, { flock_id: '', grade: '', count_dozens: '', percentage: '' }]
+    }))
+  }
+  const updateGradingLine = (idx, field, value) => {
+    setGradingForm(prev => ({
+      ...prev, lines: prev.lines.map((line, i) => i === idx ? { ...line, [field]: value } : line)
+    }))
+  }
+  const removeGradingLine = (idx) => {
+    if (gradingForm.lines.length <= 1) return
+    setGradingForm(prev => ({ ...prev, lines: prev.lines.filter((_, i) => i !== idx) }))
+  }
+
+  const handleCreateGrading = async (e) => {
+    e.preventDefault()
+    if (submitting) return
+    const validLines = gradingForm.lines.filter(l => l.grade && (parseInt(l.count_dozens) > 0 || parseFloat(l.percentage) > 0))
+    if (validLines.length === 0) { showToast('Add at least one grade line', 'error'); return }
+    setSubmitting(true)
+    try {
+      await createGradingReport({
+        shipment_id: gradingForm.shipment_id,
+        buyer_id: gradingForm.buyer_id,
+        report_date: gradingForm.report_date,
+        notes: gradingForm.notes || null,
+        lines: validLines.map(l => ({
+          flock_id: l.flock_id || null, grade: l.grade,
+          count_dozens: parseInt(l.count_dozens) || 0,
+          percentage: l.percentage ? parseFloat(l.percentage) : null,
+        }))
+      })
+      showToast('Grading report created')
+      setCreateGradingOpen(false)
+      setGradingForm({
+        shipment_id: '', buyer_id: '', report_date: new Date().toISOString().split('T')[0],
+        notes: '', lines: [{ flock_id: '', grade: '', count_dozens: '', percentage: '' }],
+      })
+      load()
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'Error', 'error')
+    } finally { setSubmitting(false) }
+  }
+
   // ── Calendar Helpers ──
   const calendarNav = (dir) => {
     const d = new Date(calendarDate)
@@ -584,6 +694,7 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
   const tabs = [
     { id: 'pickups', label: 'Pickup Jobs', icon: Truck },
     { id: 'shipments', label: 'Shipments & BOL', icon: FileText },
+    { id: 'grading', label: 'Grading Reports', icon: CheckCircle },
     { id: 'calendar', label: 'Calendar', icon: Calendar },
     { id: 'drivers', label: 'Drivers', icon: Users },
     { id: 'carriers', label: 'Carriers', icon: Building2 },
@@ -622,6 +733,11 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
               {tab === 'returns' && (
                 <button onClick={() => setCreateReturnOpen(true)} className="glass-button-primary flex items-center gap-2">
                   <Plus size={16} /> Process Return
+                </button>
+              )}
+              {tab === 'grading' && (
+                <button onClick={() => setCreateGradingOpen(true)} className="glass-button-primary flex items-center gap-2">
+                  <Plus size={16} /> New Grading Report
                 </button>
               )}
             </div>
@@ -692,6 +808,11 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
               <Plus size={16} /> Process Return
             </button>
           )}
+          {tab === 'grading' && (
+            <button onClick={() => setCreateGradingOpen(true)} className="glass-button-primary flex items-center gap-2">
+              <Plus size={16} /> New Grading Report
+            </button>
+          )}
         </div>
       )}
 
@@ -729,6 +850,12 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
                             <XCircle size={13} className="text-lvf-danger" />
                           </button>
                         </>
+                      )}
+                      {p.status === 'completed' && p.arrival_status === 'in_transit' && (
+                        <button onClick={() => openReceive(p)} title="Arrived at Warehouse"
+                          className="px-2 py-1 rounded-lg text-xs font-medium bg-lvf-accent/20 text-lvf-accent hover:bg-lvf-accent/30">
+                          Arrived at Warehouse
+                        </button>
                       )}
                       <button onClick={() => { setDetailTarget(p); setDetailOpen(true) }} title="View Details" className="p-1.5 rounded-lg hover:bg-white/10">
                         <Eye size={13} className="text-lvf-muted" />
@@ -1040,6 +1167,34 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
         </div>
       )}
 
+      {/* ═══════════ GRADING REPORTS TAB ═══════════ */}
+      {tab === 'grading' && (
+        <div className="glass-card overflow-hidden">
+          <table className="w-full glass-table">
+            <thead>
+              <tr>
+                <th>Shipment</th><th>Buyer</th><th>Report Date</th>
+                <th className="text-right">Lines</th><th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gradingReports.map(r => (
+                <tr key={r.id}>
+                  <td className="font-semibold text-lvf-accent">{r.shipment_number || '—'}</td>
+                  <td>{r.buyer_name || '—'}</td>
+                  <td className="text-lvf-muted">{r.report_date}</td>
+                  <td className="text-right font-mono">{r.lines?.length || r.line_count || 0}</td>
+                  <td className="text-xs text-lvf-muted max-w-[200px] truncate">{r.notes || '—'}</td>
+                </tr>
+              ))}
+              {gradingReports.length === 0 && (
+                <tr><td colSpan={5} className="text-center py-8 text-lvf-muted">No grading reports yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* ═══════════ MODALS ═══════════ */}
 
       {/* Create Pickup Modal */}
@@ -1178,15 +1333,15 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
                 onChange={e => setShipmentForm({ ...shipmentForm, ship_date: e.target.value })} />
             </div>
             <div>
-              <label className="block text-sm text-lvf-muted mb-1">Contract</label>
-              <SearchSelect options={contractOptions}
-                value={contractOptions.find(o => o.value === shipmentForm.contract_id) || null}
-                onChange={handleContractSelect} placeholder="Optional..." isClearable />
+              <label className="block text-sm text-lvf-muted mb-1">Buyer *</label>
+              <SearchSelect options={buyerOptions}
+                value={buyerOptions.find(o => o.value === shipmentForm.buyer_id) || null}
+                onChange={handleBuyerSelect} placeholder="Select buyer..." isClearable />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm text-lvf-muted mb-1">Buyer *</label>
+              <label className="block text-sm text-lvf-muted mb-1">Buyer Name *</label>
               <input className="glass-input w-full" required value={shipmentForm.buyer}
                 onChange={e => setShipmentForm({ ...shipmentForm, buyer: e.target.value })} />
             </div>
@@ -1221,14 +1376,14 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
                   <div className="col-span-3">
                     <SearchSelect options={flockOptions}
                       value={flockOptions.find(o => o.value === line.flock_id) || null}
-                      onChange={(opt) => updateShipmentLine(idx, 'flock_id', opt?.value || '')}
+                      onChange={(opt) => handleLineFlockSelect(idx, opt)}
                       placeholder="Flock..." isClearable />
                   </div>
                   <div className="col-span-3">
-                    <SearchSelect options={gradeOptions}
-                      value={gradeOptions.find(o => o.value === line.grade) || null}
-                      onChange={(opt) => updateShipmentLine(idx, 'grade', opt?.value || '')}
-                      placeholder="Grade..." />
+                    <SearchSelect options={contractOptions}
+                      value={contractOptions.find(o => o.value === line.contract_id) || null}
+                      onChange={(opt) => updateShipmentLine(idx, 'contract_id', opt?.value || '')}
+                      placeholder="Contract..." isClearable />
                   </div>
                   <div className="col-span-2">
                     <input className="glass-input w-full" type="number" min="1" value={line.skids}
@@ -1698,6 +1853,136 @@ export default function Logistics({ embedded = false, activeTab: externalTab = n
             <button type="button" onClick={() => setCreateReturnOpen(false)} className="glass-button-secondary">Cancel</button>
             <button type="submit" disabled={submitting} className="glass-button-primary">
               {submitting ? 'Processing...' : 'Process Return'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Warehouse Receive Modal */}
+      <Modal isOpen={receiveOpen} onClose={() => { setReceiveOpen(false); setReceiveTarget(null) }}
+        title={`Receive at Warehouse — ${receiveTarget?.pickup_number || ''}`} size="lg">
+        <div className="space-y-4">
+          <p className="text-sm text-lvf-muted">Confirm the skids received at the warehouse and note condition for each item.</p>
+          <div className="space-y-3">
+            {receiveItems.map((item, idx) => (
+              <div key={item.item_id} className="glass-card p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="font-medium">{item.barn_name}</p>
+                    <p className="text-xs text-lvf-muted">Flock: {item.flock_number} — Driver reported: {item.skids_actual} skids</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-lvf-muted mb-1">Skids Received *</label>
+                    <input className="glass-input w-full" type="number" min="0" value={item.skids_received}
+                      onChange={e => {
+                        const updated = [...receiveItems]
+                        updated[idx] = { ...updated[idx], skids_received: e.target.value }
+                        setReceiveItems(updated)
+                      }} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-lvf-muted mb-1">Condition</label>
+                    <select className="glass-input w-full" value={item.condition}
+                      onChange={e => {
+                        const updated = [...receiveItems]
+                        updated[idx] = { ...updated[idx], condition: e.target.value }
+                        setReceiveItems(updated)
+                      }}>
+                      <option value="clean">Clean</option>
+                      <option value="dirty">Dirty</option>
+                      <option value="cracked">Cracked</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-3 justify-end pt-2">
+            <button onClick={() => { setReceiveOpen(false); setReceiveTarget(null) }} className="glass-button-secondary">Cancel</button>
+            <button onClick={handleReceivePickup} disabled={submitting} className="glass-button-primary">
+              {submitting ? 'Processing...' : 'Confirm Received'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Create Grading Report Modal */}
+      <Modal isOpen={createGradingOpen} onClose={() => setCreateGradingOpen(false)} title="New Grading Report" size="lg">
+        <form onSubmit={handleCreateGrading} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-lvf-muted mb-1">Shipment</label>
+              <SearchSelect options={shipmentOptions}
+                value={shipmentOptions.find(o => o.value === gradingForm.shipment_id) || null}
+                onChange={(opt) => setGradingForm({ ...gradingForm, shipment_id: opt?.value || '' })}
+                placeholder="Select shipment..." isClearable />
+            </div>
+            <div>
+              <label className="block text-sm text-lvf-muted mb-1">Buyer</label>
+              <SearchSelect options={buyerOptions}
+                value={buyerOptions.find(o => o.value === gradingForm.buyer_id) || null}
+                onChange={(opt) => setGradingForm({ ...gradingForm, buyer_id: opt?.value || '' })}
+                placeholder="Select buyer..." isClearable />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-lvf-muted mb-1">Report Date *</label>
+              <input className="glass-input w-full" type="date" required value={gradingForm.report_date}
+                onChange={e => setGradingForm({ ...gradingForm, report_date: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-sm text-lvf-muted mb-1">Notes</label>
+              <input className="glass-input w-full" value={gradingForm.notes} placeholder="Optional notes"
+                onChange={e => setGradingForm({ ...gradingForm, notes: e.target.value })} />
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm text-lvf-muted">Grade Lines</label>
+              <button type="button" onClick={addGradingLine} className="text-xs text-lvf-accent hover:underline">+ Add Line</button>
+            </div>
+            <div className="space-y-2">
+              {gradingForm.lines.map((line, idx) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 items-end">
+                  <div className="col-span-3">
+                    <SearchSelect options={flockOptions}
+                      value={flockOptions.find(o => o.value === line.flock_id) || null}
+                      onChange={(opt) => updateGradingLine(idx, 'flock_id', opt?.value || '')}
+                      placeholder="Flock..." isClearable />
+                  </div>
+                  <div className="col-span-3">
+                    <SearchSelect options={gradeOptions}
+                      value={gradeOptions.find(o => o.value === line.grade) || null}
+                      onChange={(opt) => updateGradingLine(idx, 'grade', opt?.value || '')}
+                      placeholder="Grade..." />
+                  </div>
+                  <div className="col-span-2">
+                    <input className="glass-input w-full" type="number" min="0" value={line.count_dozens}
+                      placeholder="Dozens" onChange={e => updateGradingLine(idx, 'count_dozens', e.target.value)} />
+                  </div>
+                  <div className="col-span-2">
+                    <input className="glass-input w-full" type="number" step="0.01" min="0" max="100" value={line.percentage}
+                      placeholder="%" onChange={e => updateGradingLine(idx, 'percentage', e.target.value)} />
+                  </div>
+                  <div className="col-span-2">
+                    {gradingForm.lines.length > 1 && (
+                      <button type="button" onClick={() => removeGradingLine(idx)}
+                        className="p-2 text-lvf-danger hover:bg-white/10 rounded-lg"><XCircle size={14} /></button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-3 justify-end pt-2">
+            <button type="button" onClick={() => setCreateGradingOpen(false)} className="glass-button-secondary">Cancel</button>
+            <button type="submit" disabled={submitting} className="glass-button-primary">
+              {submitting ? 'Creating...' : 'Create Report'}
             </button>
           </div>
         </form>

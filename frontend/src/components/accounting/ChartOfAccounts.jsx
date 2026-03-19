@@ -32,10 +32,10 @@ export default function ChartOfAccounts() {
 
   const load = async () => {
     const res = await getAccounts()
-    setAccounts(res.data)
+    setAccounts(res.data || [])
     // Auto-expand parent accounts
     const exp = {}
-    res.data.forEach(a => { if (!a.parent_id) exp[a.id] = true })
+    ;(res.data || []).forEach(a => { if (!a.parent_id) exp[a.id] = true })
     setExpanded(exp)
   }
 

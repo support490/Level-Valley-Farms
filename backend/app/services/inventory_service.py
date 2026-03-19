@@ -9,6 +9,7 @@ from app.models.farm import Barn, FlockPlacement, Grower, BarnType
 from app.models.accounting import Account, JournalEntry, JournalLine, AccountType
 from app.models.contracts import EggContract, ContractFlockAssignment
 from app.models.logistics import PickupJob, PickupItem, PickupStatus
+from app.models.weekly_record import WeeklyRecord, WeeklyProductionLog
 from app.schemas.inventory import EggInventoryCreate, EggSaleCreate, EggGradeCreate
 from datetime import date as date_type, datetime
 from app.services.accounting_service import _next_entry_number
@@ -23,6 +24,7 @@ DEFAULT_GRADES = [
     ("grade_b", "Grade B", 3),
     ("cracked", "Cracked", 4),
     ("reject", "Reject", 5),
+    ("ungraded", "Ungraded", 6),
 ]
 
 
@@ -322,6 +324,9 @@ async def get_inventory_by_flock(db: AsyncSession):
                 grower = await db.get(Grower, barn.grower_id)
                 grower_name = grower.name if grower else ""
 
+        # Get weight per skid for this flock
+        weight_per_skid = await _compute_skid_weight(db, flock_id)
+
         # Get inventory by grade for this flock
         grades_result = await db.execute(
             select(EggInventory.grade).where(EggInventory.flock_id == flock_id).distinct()
@@ -333,10 +338,31 @@ async def get_inventory_by_flock(db: AsyncSession):
             on_hand = await _get_on_hand(db, flock_id, grade_val)
             if on_hand > 0:
                 grade_label = await _get_grade_label(db, grade_val)
+                # Get production period from most recent inventory record for this grade
+                period_result = await db.execute(
+                    select(
+                        EggInventory.production_period_start,
+                        EggInventory.production_period_end,
+                        EggInventory.weight_per_skid,
+                        EggInventory.condition,
+                    )
+                    .where(
+                        EggInventory.flock_id == flock_id,
+                        EggInventory.grade == grade_val,
+                        EggInventory.skids_in > 0,
+                    )
+                    .order_by(EggInventory.record_date.desc(), EggInventory.created_at.desc())
+                    .limit(1)
+                )
+                period_row = period_result.one_or_none()
                 grades.append({
                     "grade": grade_val,
                     "grade_label": grade_label,
                     "skids_on_hand": on_hand,
+                    "production_period_start": period_row[0] if period_row else None,
+                    "production_period_end": period_row[1] if period_row else None,
+                    "weight_per_skid": period_row[2] if period_row and period_row[2] else weight_per_skid,
+                    "condition": period_row[3] if period_row else None,
                 })
                 total_skids += on_hand
 
@@ -348,6 +374,7 @@ async def get_inventory_by_flock(db: AsyncSession):
                 "barn_name": barn_name,
                 "grower_name": grower_name,
                 "total_skids": total_skids,
+                "weight_per_skid": weight_per_skid,
                 "grades": grades,
             })
 
@@ -480,14 +507,29 @@ async def get_inventory_alerts(db: AsyncSession):
 EGGS_PER_SKID = 10800  # 900 dozen * 12
 
 
-async def get_barn_inventory(db: AsyncSession):
-    """Compute barn-level inventory from production records minus completed pickups.
+async def _compute_skid_weight(db: AsyncSession, flock_id: str) -> float:
+    """Get most recent weekly record avg_case_weight * 60 (60 cases/skid). Fallback 37800."""
+    result = await db.execute(
+        select(WeeklyRecord.avg_case_weight)
+        .where(
+            WeeklyRecord.flock_id == flock_id,
+            WeeklyRecord.avg_case_weight.isnot(None),
+        )
+        .order_by(WeeklyRecord.end_date.desc())
+        .limit(1)
+    )
+    avg_cw = result.scalar_one_or_none()
+    if avg_cw:
+        return round(float(avg_cw) * 60, 2)
+    return 37800.0
 
-    Barn inventory = net eggs from production / EGGS_PER_SKID - completed pickup skids.
+
+async def get_barn_inventory(db: AsyncSession):
+    """Compute barn-level inventory from production records minus completed+in-transit pickups.
+
+    Barn inventory = net eggs from production / EGGS_PER_SKID - picked skids.
     Only includes layer barns with current placements.
     """
-    # Query 1: Production totals per barn+flock
-    # Join flock_placements (current) → barns (layer) → growers → production_records
     placements_result = await db.execute(
         select(FlockPlacement).where(FlockPlacement.is_current == True)
     )
@@ -519,7 +561,7 @@ async def get_barn_inventory(db: AsyncSession):
         total_floor = int(row[2])
         net_eggs = total_eggs - total_cracked - total_floor
 
-        # Query 2: Completed pickup skids for this barn+flock
+        # Completed pickup skids
         pickup_result = await db.execute(
             select(func.coalesce(func.sum(PickupItem.skids_actual), 0)).where(
                 PickupItem.barn_id == barn.id,
@@ -531,11 +573,29 @@ async def get_barn_inventory(db: AsyncSession):
         )
         picked_skids = int(pickup_result.scalar())
 
+        # In-transit pickup skids (completed but not yet received at warehouse)
+        transit_result = await db.execute(
+            select(func.coalesce(func.sum(PickupItem.skids_actual), 0)).where(
+                PickupItem.barn_id == barn.id,
+                PickupItem.flock_id == flock.id,
+                PickupItem.pickup_job_id.in_(
+                    select(PickupJob.id).where(
+                        PickupJob.status == PickupStatus.COMPLETED,
+                        PickupJob.arrival_status == "in_transit",
+                    )
+                ),
+            )
+        )
+        in_transit_skids = int(transit_result.scalar())
+
         estimated_skids = round(net_eggs / EGGS_PER_SKID) if net_eggs > 0 else 0
         available_skids = max(0, estimated_skids - picked_skids)
 
-        if available_skids <= 0:
+        if available_skids <= 0 and in_transit_skids <= 0:
             continue
+
+        # Get weight per skid from latest weekly record
+        weight_per_skid = await _compute_skid_weight(db, flock.id)
 
         barn_key = barn.id
         if barn_key not in barn_data:
@@ -546,14 +606,18 @@ async def get_barn_inventory(db: AsyncSession):
                 "grower_name": grower.name if grower else "Unknown",
                 "flocks": [],
                 "total_estimated_skids": 0,
+                "total_in_transit_skids": 0,
             }
 
         barn_data[barn_key]["flocks"].append({
             "flock_id": flock.id,
             "flock_number": flock.flock_number,
             "estimated_skids": available_skids,
+            "in_transit_skids": in_transit_skids,
+            "weight_per_skid": weight_per_skid,
         })
         barn_data[barn_key]["total_estimated_skids"] += available_skids
+        barn_data[barn_key]["total_in_transit_skids"] += in_transit_skids
 
     return list(barn_data.values())
 
@@ -594,6 +658,11 @@ async def _inventory_to_dict(db: AsyncSession, record: EggInventory) -> dict:
         "skids_on_hand": record.skids_on_hand,
         "dozens_per_skid": record.dozens_per_skid,
         "dozens_on_hand": record.skids_on_hand * record.dozens_per_skid,
+        "weight_per_skid": record.weight_per_skid,
+        "production_period_start": record.production_period_start,
+        "production_period_end": record.production_period_end,
+        "weekly_record_id": record.weekly_record_id,
+        "condition": record.condition,
         "notes": record.notes,
         "created_at": record.created_at,
     }

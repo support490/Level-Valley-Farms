@@ -97,34 +97,94 @@ async def barn_inventory(db: AsyncSession = Depends(get_db)):
 
 @router.get("/map-data")
 async def map_data(db: AsyncSession = Depends(get_db)):
-    """Return all barns with lat/lng + current flock info + barn inventory for map display."""
+    """Return all barns, growers, buyers, and warehouse for map display."""
     from app.services.grower_service import get_all_growers
+    from app.services.contract_service import get_all_buyers
+    from app.models.flock import Flock
+    from app.models.farm import FlockPlacement
+    from datetime import date
+
     growers = await get_all_growers(db)
     barn_inv = await inventory_service.get_barn_inventory(db)
+    buyers = await get_all_buyers(db)
 
     # Index barn inventory by barn_id
     inv_by_barn = {b["barn_id"]: b for b in barn_inv}
 
+    today = date.today()
+
     barns = []
+    grower_list = []
     for g in growers:
+        grower_list.append({
+            "grower_id": g["id"],
+            "grower_name": g["name"],
+            "location": g.get("location", ""),
+            "latitude": g.get("latitude"),
+            "longitude": g.get("longitude"),
+            "contact_name": g.get("contact_name"),
+            "contact_phone": g.get("contact_phone"),
+            "contact_email": g.get("contact_email"),
+            "barn_count": g.get("barn_count", 0),
+            "total_current_birds": g.get("total_current_birds", 0),
+        })
         for b in (g.get("barns") or []):
-            if b.get("latitude") is None or b.get("longitude") is None:
-                continue
             inv = inv_by_barn.get(b["id"], {})
+
+            # Compute flock age in days from placement date
+            flock_age_days = None
+            flock_id = b.get("current_flock_id")
+            if flock_id:
+                from sqlalchemy import select as sa_select
+                placement_result = await db.execute(
+                    sa_select(FlockPlacement.placed_date).where(
+                        FlockPlacement.flock_id == flock_id,
+                        FlockPlacement.barn_id == b["id"],
+                        FlockPlacement.is_current == True,
+                    ).limit(1)
+                )
+                placed_date_str = placement_result.scalar_one_or_none()
+                if placed_date_str:
+                    try:
+                        placed = date.fromisoformat(placed_date_str)
+                        flock_age_days = (today - placed).days
+                    except (ValueError, TypeError):
+                        pass
+
             barns.append({
                 "barn_id": b["id"],
                 "barn_name": b["name"],
                 "barn_type": b["barn_type"],
+                "grower_id": g["id"],
                 "grower_name": g["name"],
-                "latitude": b["latitude"],
-                "longitude": b["longitude"],
+                "grower_location": g.get("location", ""),
+                "grower_phone": g.get("contact_phone"),
+                "latitude": b.get("latitude"),
+                "longitude": b.get("longitude"),
+                "has_coordinates": b.get("latitude") is not None and b.get("longitude") is not None,
                 "bird_capacity": b["bird_capacity"],
                 "current_bird_count": b["current_bird_count"],
+                "current_flock_id": b.get("current_flock_id"),
                 "current_flock_number": b.get("current_flock_number"),
                 "current_flock_status": b.get("current_flock_status"),
+                "flock_age_days": flock_age_days,
                 "estimated_skids": inv.get("total_estimated_skids", 0),
             })
-    return barns
+
+    # Buyers with addresses for map
+    buyer_list = []
+    for buyer in buyers:
+        buyer_list.append({
+            "buyer_id": buyer["id"],
+            "buyer_name": buyer["name"],
+            "address": buyer.get("address") or buyer.get("ship_to_address") or "",
+            "customer_type": buyer.get("customer_type"),
+            "contact_name": buyer.get("contact_name"),
+            "phone": buyer.get("phone"),
+            "email": buyer.get("email"),
+        })
+
+    return {"barns": barns, "growers": grower_list, "buyers": buyer_list}
 
 
 # ── Sales ──

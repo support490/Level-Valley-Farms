@@ -29,8 +29,8 @@ export default function Equipment() {
   const load = async () => {
     try {
       const [eqRes, barnsRes] = await Promise.all([getEquipment(), getBarns()])
-      setEquipment(eqRes.data)
-      setBarns(barnsRes.data)
+      setEquipment(eqRes.data || [])
+      setBarns(barnsRes.data || [])
     } catch {
       showToast('Error loading equipment', 'error')
     }

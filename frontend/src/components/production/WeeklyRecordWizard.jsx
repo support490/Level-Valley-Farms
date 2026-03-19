@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { X, ChevronLeft, ChevronRight, Save, Send } from 'lucide-react'
+import { X, ChevronLeft, ChevronRight, Save, Send, RotateCcw } from 'lucide-react'
 import { getFlocks } from '../../api/flocks'
 import { getBarns } from '../../api/barns'
+import { getGrowers } from '../../api/growers'
 import { createWeeklyRecord, updateWeeklyRecord } from '../../api/production'
 import SearchSelect from '../common/SearchSelect'
 
@@ -56,14 +57,15 @@ const emptyForm = () => ({
 
 export default function WeeklyRecordWizard({ onClose, onSaved, editRecord = null, showToast }) {
   const [step, setStep] = useState(0)
-  const [formData, setFormData] = useState(editRecord ? { ...editRecord } : emptyForm())
+  const [formData, setFormData] = useState(editRecord ? { ...emptyForm(), ...editRecord } : emptyForm())
   const [flocks, setFlocks] = useState([])
   const [barns, setBarns] = useState([])
+  const [growers, setGrowers] = useState([])
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    Promise.all([getFlocks({ status: 'active' }), getBarns()])
-      .then(([f, b]) => { setFlocks(f.data); setBarns(b.data) })
+    Promise.all([getFlocks({ status: 'active' }), getBarns(), getGrowers()])
+      .then(([f, b, g]) => { setFlocks(f.data || []); setBarns(b.data || []); setGrowers(g.data || []) })
   }, [])
 
   const dates = useMemo(() =>
@@ -77,7 +79,7 @@ export default function WeeklyRecordWizard({ onClose, onSaved, editRecord = null
     setFormData(prev => {
       const newProd = dates.map(d => {
         const existing = prev.production_logs.find(p => p.date === d.date)
-        return existing || { date: d.date, day_name: d.day_name, initial_am: '', initial_pm: '', cull_count: 0, cull_reason: '', mortality_count: 0, mortality_reason: '', egg_production: 0, egg_inventory: 0, case_weight: '', temp_high: '', temp_low: '', water_gallons: '' }
+        return existing || { date: d.date, day_name: d.day_name, initial_am: '', initial_pm: '', cull_count: '', cull_reason: '', mortality_count: '', mortality_reason: '', egg_production: '', egg_inventory: '', case_weight: '', temp_high: '', temp_low: '', water_gallons: '' }
       })
       const newFeed = dates.map(d => {
         const existing = prev.feed_logs.find(f => f.date === d.date)
@@ -91,13 +93,12 @@ export default function WeeklyRecordWizard({ onClose, onSaved, editRecord = null
     })
   }, [dates.length, formData.start_date])
 
-  const handleFlockSelect = (flockId) => {
-    const flock = flocks.find(f => f.id === flockId)
+  const handleFlockSelect = (opt) => {
+    const flock = flocks.find(f => f.id === opt?.value)
     if (!flock) return
-    const barn = barns.find(b => b.id === flock.current_barn_id)
     setFormData(prev => ({
       ...prev,
-      flock_id: flockId,
+      flock_id: flock.id,
       barn_id: flock.current_barn_id || '',
       grower_name: flock.current_grower || '',
       starting_bird_count: flock.current_bird_count || '',
@@ -163,7 +164,7 @@ export default function WeeklyRecordWizard({ onClose, onSaved, editRecord = null
     }
   }, [formData.production_logs, formData.feed_logs, formData.starting_bird_count, dates.length])
 
-  const handleSave = async (status) => {
+  const handleSave = async (status, afterSave) => {
     if (submitting) return
     setSubmitting(true)
     try {
@@ -195,7 +196,11 @@ export default function WeeklyRecordWizard({ onClose, onSaved, editRecord = null
       }
       showToast?.(`Weekly record ${status === 'submitted' ? 'submitted' : 'saved as draft'}`, 'success')
       onSaved?.()
-      onClose()
+      if (afterSave) {
+        afterSave()
+      } else {
+        onClose()
+      }
     } catch (err) {
       showToast?.(err.response?.data?.detail || 'Error saving record', 'error')
     } finally {
@@ -204,6 +209,7 @@ export default function WeeklyRecordWizard({ onClose, onSaved, editRecord = null
   }
 
   const flockOptions = flocks.map(f => ({ value: f.id, label: `${f.flock_number} — ${f.current_bird_count} birds (${f.current_barn || ''})` }))
+  const growerOptions = growers.map(g => ({ value: g.name, label: g.name }))
 
   const inputClass = "glass-input text-xs px-2 py-1.5 w-full"
   const numInput = "glass-input text-xs px-2 py-1.5 w-full text-right"
@@ -238,17 +244,18 @@ export default function WeeklyRecordWizard({ onClose, onSaved, editRecord = null
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
               <div className="md:col-span-2">
                 <label className="block text-xs text-lvf-muted mb-1">Flock</label>
-                <SearchSelect options={flockOptions} value={formData.flock_id}
+                <SearchSelect options={flockOptions} value={flockOptions.find(o => o.value === formData.flock_id) || null}
                   onChange={handleFlockSelect} placeholder="Select flock..." />
               </div>
               <div>
                 <label className="block text-xs text-lvf-muted mb-1">Grower Name</label>
-                <input className={inputClass} value={formData.grower_name} onChange={e => updateField('grower_name', e.target.value)} />
+                <SearchSelect options={growerOptions} value={growerOptions.find(o => o.value === formData.grower_name) || null}
+                  onChange={opt => updateField('grower_name', opt?.value || '')} placeholder="Select grower..." />
               </div>
               <div>
                 <label className="block text-xs text-lvf-muted mb-1">Starting Bird Count</label>
-                <input type="number" className={numInput} value={formData.starting_bird_count}
-                  onChange={e => updateField('starting_bird_count', e.target.value)} />
+                <p className="text-sm font-semibold py-1.5">{formData.starting_bird_count ? Number(formData.starting_bird_count).toLocaleString() : '—'}</p>
+                <p className="text-[10px] text-lvf-muted">Auto-populated from flock data</p>
               </div>
               <div>
                 <label className="block text-xs text-lvf-muted mb-1">Start Date</label>
@@ -715,6 +722,10 @@ export default function WeeklyRecordWizard({ onClose, onSaved, editRecord = null
                 <button onClick={() => handleSave('draft')} disabled={submitting}
                   className="glass-button-secondary flex items-center gap-2">
                   <Save size={16} /> Save as Draft
+                </button>
+                <button onClick={() => handleSave('submitted', () => { setFormData(emptyForm()); setStep(0) })} disabled={submitting}
+                  className="glass-button-secondary flex items-center gap-2 text-lvf-success border-lvf-success/30">
+                  <RotateCcw size={16} /> Submit & Next
                 </button>
                 <button onClick={() => handleSave('submitted')} disabled={submitting}
                   className="glass-button-primary flex items-center gap-2">

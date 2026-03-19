@@ -31,6 +31,11 @@ class EggInventory(Base, TimestampMixin):
     skids_out: Mapped[int] = mapped_column(Integer, default=0)
     skids_on_hand: Mapped[int] = mapped_column(Integer, default=0)
     dozens_per_skid: Mapped[int] = mapped_column(Integer, default=900)
+    weight_per_skid: Mapped[Optional[float]] = mapped_column(Float)
+    production_period_start: Mapped[Optional[str]] = mapped_column(String(10))
+    production_period_end: Mapped[Optional[str]] = mapped_column(String(10))
+    weekly_record_id: Mapped[Optional[str]] = mapped_column(String(36))
+    condition: Mapped[Optional[str]] = mapped_column(String(50))
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
 

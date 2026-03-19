@@ -21,33 +21,37 @@ export default function Dashboard() {
   const navigate = useNavigate()
 
   const load = async () => {
-    const [statsRes, activityRes, alertsRes, flocksRes] = await Promise.all([
-      getDashboardStats(),
-      getRecentActivity(),
-      getAlerts(),
-      getFlocks({ status: 'active' }),
-    ])
-    setStats(statsRes.data)
-    setActivity(activityRes.data)
-    setAlerts(alertsRes.data)
+    try {
+      const [statsRes, activityRes, alertsRes, flocksRes] = await Promise.all([
+        getDashboardStats(),
+        getRecentActivity(),
+        getAlerts(),
+        getFlocks({ status: 'active' }),
+      ])
+      setStats(statsRes.data)
+      setActivity(activityRes.data || [])
+      setAlerts(alertsRes.data || [])
 
-    // Load production chart for active flocks
-    const activeFlocks = flocksRes.data.slice(0, 5)
-    if (activeFlocks.length > 0) {
-      const ids = activeFlocks.map(f => f.id)
-      const chartRes = await getProductionChart(ids)
-      const data = chartRes.data
-      const flockNames = Object.keys(data)
-      setProdFlocks(flockNames)
+      // Load production chart for active flocks
+      const activeFlocks = (flocksRes.data || []).slice(0, 5)
+      if (activeFlocks.length > 0) {
+        const ids = activeFlocks.map(f => f.id)
+        const chartRes = await getProductionChart(ids)
+        const data = chartRes.data
+        const flockNames = Object.keys(data)
+        setProdFlocks(flockNames)
 
-      const dateMap = {}
-      for (const [name, points] of Object.entries(data)) {
-        for (const pt of points) {
-          if (!dateMap[pt.record_date]) dateMap[pt.record_date] = { date: pt.record_date }
-          dateMap[pt.record_date][name] = pt.production_pct
+        const dateMap = {}
+        for (const [name, points] of Object.entries(data)) {
+          for (const pt of points) {
+            if (!dateMap[pt.record_date]) dateMap[pt.record_date] = { date: pt.record_date }
+            dateMap[pt.record_date][name] = pt.production_pct
+          }
         }
+        setProdData(Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date)))
       }
-      setProdData(Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date)))
+    } catch (err) {
+      console.error('Dashboard load error:', err)
     }
   }
 

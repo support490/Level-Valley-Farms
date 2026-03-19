@@ -45,19 +45,21 @@ export default function JournalEntries() {
   })
 
   const load = async () => {
-    const params = {}
-    if (filters.flock_id) params.flock_id = filters.flock_id
-    if (filters.category) params.category = filters.category
-    if (filters.posted_only) params.posted_only = true
-    if (filters.date_from) params.date_from = filters.date_from
-    if (filters.date_to) params.date_to = filters.date_to
+    try {
+      const params = {}
+      if (filters.flock_id) params.flock_id = filters.flock_id
+      if (filters.category) params.category = filters.category
+      if (filters.posted_only) params.posted_only = true
+      if (filters.date_from) params.date_from = filters.date_from
+      if (filters.date_to) params.date_to = filters.date_to
 
-    const [entriesRes, accountsRes, flocksRes] = await Promise.all([
-      getJournalEntries(params), getAccounts(), getFlocks()
-    ])
-    setEntries(entriesRes.data)
-    setAccounts(accountsRes.data)
-    setFlocks(flocksRes.data)
+      const [entriesRes, accountsRes, flocksRes] = await Promise.all([
+        getJournalEntries(params), getAccounts(), getFlocks()
+      ])
+      setEntries(entriesRes.data || [])
+      setAccounts(accountsRes.data || [])
+      setFlocks(flocksRes.data || [])
+    } catch {}
   }
 
   useEffect(() => { load() }, [filters])

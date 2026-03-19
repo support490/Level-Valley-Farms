@@ -9,17 +9,21 @@ from app.models.logistics import (
     Shipment, ShipmentLine, ShipmentStatus,
     Driver, Carrier,
     EggReturn, EggReturnLine, ReturnStatus,
+    BuyerGradingReport, BuyerGradingReportLine,
 )
 from app.models.farm import Barn, Grower
 from app.models.flock import Flock
 from app.models.inventory import EggInventory, EggGrade
-from app.models.contracts import EggContract
+from app.models.contracts import EggContract, ContractFlockAssignment, Buyer
+from app.models.weekly_record import WeeklyRecord
 from app.schemas.logistics import (
     PickupJobCreate, PickupItemComplete,
     ShipmentCreate, ShipmentStatusUpdate, DeliveryConfirmation,
     DriverCreate, DriverUpdate,
     CarrierCreate, CarrierUpdate,
     EggReturnCreate,
+    ReceivePickupItem,
+    BuyerGradingReportCreate,
 )
 
 
@@ -259,8 +263,8 @@ async def get_pickups_calendar(db: AsyncSession, start_date: str, end_date: str)
 
 
 async def complete_pickup(db: AsyncSession, job_id: str, items: List[PickupItemComplete]):
-    """Mark a pickup as completed. For each item, set actual skids and grade,
-    then auto-receive those skids into the egg warehouse inventory."""
+    """Mark a pickup as completed by the driver. Sets actual skids and grade,
+    then marks as in_transit (inventory created when received at warehouse)."""
     job = await db.get(PickupJob, job_id)
     if not job:
         raise ValueError("Pickup job not found")
@@ -276,26 +280,73 @@ async def complete_pickup(db: AsyncSession, job_id: str, items: List[PickupItemC
             item.skids_actual = item_data.skids_actual
             item.grade = item_data.grade
 
-            # Auto-receive into egg warehouse inventory
-            if item_data.skids_actual > 0:
-                # Get current on-hand for this flock+grade
-                current_on_hand = await _get_warehouse_on_hand(db, item.flock_id, item_data.grade)
-                new_on_hand = current_on_hand + item_data.skids_actual
+        job.status = PickupStatus.COMPLETED
+        job.completed_date = job.scheduled_date
+        job.arrival_status = "in_transit"
+        await db.commit()
+        return await _pickup_to_dict(db, job)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def receive_pickup_at_warehouse(db: AsyncSession, job_id: str, items: List[ReceivePickupItem]):
+    """Receive a completed pickup at the warehouse. Assess condition, verify skids, create inventory."""
+    job = await db.get(PickupJob, job_id)
+    if not job:
+        raise ValueError("Pickup job not found")
+    if job.status != PickupStatus.COMPLETED:
+        raise ValueError("Pickup must be completed before receiving")
+    if job.arrival_status == "arrived":
+        raise ValueError("Pickup already received at warehouse")
+
+    try:
+        for item_data in items:
+            item = await db.get(PickupItem, item_data.item_id)
+            if not item or item.pickup_job_id != job_id:
+                raise ValueError(f"Pickup item not found: {item_data.item_id}")
+
+            item.skids_received = item_data.skids_received
+            item.condition = item_data.condition
+
+            if item_data.skids_received > 0:
+                grade = item.grade or "ungraded"
+
+                # Get weight and production period from the flock's most recent weekly record
+                wr_result = await db.execute(
+                    select(WeeklyRecord)
+                    .where(
+                        WeeklyRecord.flock_id == item.flock_id,
+                        WeeklyRecord.avg_case_weight.isnot(None),
+                    )
+                    .order_by(WeeklyRecord.end_date.desc())
+                    .limit(1)
+                )
+                wr = wr_result.scalar_one_or_none()
+                weight_per_skid = round(float(wr.avg_case_weight) * 60, 2) if wr and wr.avg_case_weight else 37800.0
+                period_start = wr.start_date if wr else None
+                period_end = wr.end_date if wr else None
+
+                current_on_hand = await _get_warehouse_on_hand(db, item.flock_id, grade)
+                new_on_hand = current_on_hand + item_data.skids_received
 
                 inv_record = EggInventory(
                     flock_id=item.flock_id,
                     record_date=job.scheduled_date,
-                    grade=item_data.grade,
-                    skids_in=item_data.skids_actual,
+                    grade=grade,
+                    skids_in=item_data.skids_received,
                     skids_out=0,
                     skids_on_hand=new_on_hand,
                     dozens_per_skid=900,
-                    notes=f"Auto-received from pickup {job.pickup_number}",
+                    weight_per_skid=weight_per_skid,
+                    production_period_start=period_start,
+                    production_period_end=period_end,
+                    condition=item_data.condition,
+                    notes=f"Received from pickup {job.pickup_number} — {item_data.condition}",
                 )
                 db.add(inv_record)
 
-        job.status = PickupStatus.COMPLETED
-        job.completed_date = job.scheduled_date
+        job.arrival_status = "arrived"
         await db.commit()
         return await _pickup_to_dict(db, job)
     except Exception:
@@ -319,11 +370,11 @@ async def cancel_pickup(db: AsyncSession, job_id: str):
 async def create_shipment(db: AsyncSession, data: ShipmentCreate):
     shipment_number = await _next_shipment_number(db)
 
-    # Validate contract if provided
-    contract = None
+    # Validate header-level contract if provided
+    header_contract = None
     if data.contract_id:
-        contract = await db.get(EggContract, data.contract_id)
-        if not contract:
+        header_contract = await db.get(EggContract, data.contract_id)
+        if not header_contract:
             raise ValueError("Contract not found")
 
     # Resolve carrier name from carrier_id if provided
@@ -340,6 +391,7 @@ async def create_shipment(db: AsyncSession, data: ShipmentCreate):
         contract_id=data.contract_id,
         ship_date=data.ship_date,
         buyer=data.buyer,
+        buyer_id=data.buyer_id,
         carrier=carrier_name,
         carrier_id=data.carrier_id,
         destination=data.destination,
@@ -357,14 +409,39 @@ async def create_shipment(db: AsyncSession, data: ShipmentCreate):
                 grade_label = await _get_grade_label(db, line_data.grade)
                 raise ValueError(f"Only {on_hand} skids of {grade_label} available for this flock")
 
+        # Resolve line-level contract: explicit > auto-suggest from flock assignment > header
+        line_contract_id = line_data.contract_id
+        line_contract = None
+        if line_contract_id:
+            line_contract = await db.get(EggContract, line_contract_id)
+        elif line_data.flock_id:
+            # Auto-suggest from flock assignment
+            assign_result = await db.execute(
+                select(ContractFlockAssignment).where(
+                    ContractFlockAssignment.flock_id == line_data.flock_id
+                )
+            )
+            for a in assign_result.scalars().all():
+                c = await db.get(EggContract, a.contract_id)
+                if c and c.is_active:
+                    line_contract = c
+                    line_contract_id = c.id
+                    break
+        if not line_contract_id and data.contract_id:
+            line_contract_id = data.contract_id
+            line_contract = header_contract
+
         price = Decimal(str(line_data.price_per_dozen)) if line_data.price_per_dozen else None
         # Use contract price if available and no line price specified
-        if not price and contract and contract.price_per_dozen:
-            price = contract.price_per_dozen
+        if not price and line_contract and line_contract.price_per_dozen:
+            price = line_contract.price_per_dozen
+        elif not price and header_contract and header_contract.price_per_dozen:
+            price = header_contract.price_per_dozen
 
         line = ShipmentLine(
             shipment_id=shipment.id,
             flock_id=line_data.flock_id,
+            contract_id=line_contract_id,
             grade=line_data.grade,
             skids=line_data.skids,
             dozens_per_skid=line_data.dozens_per_skid,
@@ -512,6 +589,118 @@ async def get_egg_return(db: AsyncSession, return_id: str):
     if not egg_return:
         return None
     return await _return_to_dict(db, egg_return)
+
+
+# ── Buyer Grading Reports ──
+
+async def create_grading_report(db: AsyncSession, data: BuyerGradingReportCreate):
+    shipment = await db.get(Shipment, data.shipment_id)
+    if not shipment:
+        raise ValueError("Shipment not found")
+    buyer = await db.get(Buyer, data.buyer_id)
+    if not buyer:
+        raise ValueError("Buyer not found")
+
+    report = BuyerGradingReport(
+        shipment_id=data.shipment_id,
+        buyer_id=data.buyer_id,
+        report_date=data.report_date,
+        notes=data.notes,
+    )
+    db.add(report)
+    await db.flush()
+
+    for line_data in data.lines:
+        line = BuyerGradingReportLine(
+            grading_report_id=report.id,
+            flock_id=line_data.flock_id,
+            grade=line_data.grade,
+            count_dozens=line_data.count_dozens,
+            percentage=line_data.percentage,
+            notes=line_data.notes,
+        )
+        db.add(line)
+
+    await db.commit()
+    await db.refresh(report)
+    return await _grading_report_to_dict(db, report)
+
+
+async def get_grading_reports(db: AsyncSession):
+    result = await db.execute(
+        select(BuyerGradingReport).order_by(BuyerGradingReport.report_date.desc())
+    )
+    reports = result.scalars().all()
+    return [await _grading_report_to_dict(db, r) for r in reports]
+
+
+async def get_grading_report(db: AsyncSession, report_id: str):
+    report = await db.get(BuyerGradingReport, report_id)
+    if not report:
+        return None
+    return await _grading_report_to_dict(db, report)
+
+
+async def get_flock_grade_history(db: AsyncSession, flock_id: str):
+    """Get grade percentage history for a flock from buyer grading reports."""
+    result = await db.execute(
+        select(BuyerGradingReportLine, BuyerGradingReport.report_date, BuyerGradingReport.shipment_id)
+        .join(BuyerGradingReport, BuyerGradingReportLine.grading_report_id == BuyerGradingReport.id)
+        .where(BuyerGradingReportLine.flock_id == flock_id)
+        .order_by(BuyerGradingReport.report_date.asc())
+    )
+    rows = result.all()
+
+    history = []
+    for line, report_date, shipment_id in rows:
+        grade_label = await _get_grade_label(db, line.grade)
+        history.append({
+            "report_date": report_date,
+            "shipment_id": shipment_id,
+            "grade": line.grade,
+            "grade_label": grade_label,
+            "count_dozens": line.count_dozens,
+            "percentage": line.percentage,
+        })
+    return history
+
+
+async def _grading_report_to_dict(db: AsyncSession, report: BuyerGradingReport) -> dict:
+    lines_result = await db.execute(
+        select(BuyerGradingReportLine).where(BuyerGradingReportLine.grading_report_id == report.id)
+    )
+    lines = lines_result.scalars().all()
+
+    line_dicts = []
+    for line in lines:
+        flock = await db.get(Flock, line.flock_id) if line.flock_id else None
+        grade_label = await _get_grade_label(db, line.grade)
+        line_dicts.append({
+            "id": line.id,
+            "grading_report_id": line.grading_report_id,
+            "flock_id": line.flock_id,
+            "flock_number": flock.flock_number if flock else "",
+            "grade": line.grade,
+            "grade_label": grade_label,
+            "count_dozens": line.count_dozens,
+            "percentage": line.percentage,
+            "notes": line.notes,
+        })
+
+    shipment = await db.get(Shipment, report.shipment_id)
+    buyer = await db.get(Buyer, report.buyer_id)
+
+    return {
+        "id": report.id,
+        "shipment_id": report.shipment_id,
+        "shipment_number": shipment.shipment_number if shipment else "",
+        "buyer_id": report.buyer_id,
+        "buyer_name": buyer.name if buyer else "",
+        "report_date": report.report_date,
+        "notes": report.notes,
+        "lines": line_dicts,
+        "created_at": report.created_at,
+    }
 
 
 # ── BOL PDF Generation ──
@@ -730,8 +919,10 @@ async def _pickup_to_dict(db: AsyncSession, job: PickupJob) -> dict:
             "flock_number": flock.flock_number if flock else "",
             "skids_estimated": item.skids_estimated,
             "skids_actual": item.skids_actual,
+            "skids_received": item.skids_received,
             "grade": item.grade,
             "grade_label": grade_label,
+            "condition": item.condition,
             "notes": item.notes,
         })
 
@@ -751,6 +942,7 @@ async def _pickup_to_dict(db: AsyncSession, job: PickupJob) -> dict:
         "trailer_id": job.trailer_id,
         "driver": driver_dict,
         "status": job.status.value if hasattr(job.status, 'value') else job.status,
+        "arrival_status": job.arrival_status or "pending",
         "completed_date": job.completed_date,
         "notes": job.notes,
         "items": item_dicts,
@@ -781,13 +973,37 @@ async def _shipment_to_dict(db: AsyncSession, shipment: Shipment) -> dict:
         total_dozens += line_dozens
         total_amount += line_total
 
+        # Get per-line contract number
+        line_contract_number = ""
+        if line.contract_id:
+            line_contract = await db.get(EggContract, line.contract_id)
+            line_contract_number = line_contract.contract_number if line_contract else ""
+
+        # Get condition from the most recent inventory record for this flock+grade
+        line_condition = None
+        if line.flock_id:
+            cond_result = await db.execute(
+                select(EggInventory.condition)
+                .where(
+                    EggInventory.flock_id == line.flock_id,
+                    EggInventory.grade == line.grade,
+                    EggInventory.condition.isnot(None),
+                )
+                .order_by(EggInventory.record_date.desc(), EggInventory.created_at.desc())
+                .limit(1)
+            )
+            line_condition = cond_result.scalar_one_or_none()
+
         line_dicts.append({
             "id": line.id,
             "shipment_id": line.shipment_id,
             "flock_id": line.flock_id,
             "flock_number": flock.flock_number if flock else "",
+            "contract_id": line.contract_id,
+            "contract_number": line_contract_number,
             "grade": line.grade,
             "grade_label": grade_label,
+            "condition": line_condition,
             "skids": line.skids,
             "dozens_per_skid": line.dozens_per_skid,
             "total_dozens": line_dozens,
@@ -816,6 +1032,7 @@ async def _shipment_to_dict(db: AsyncSession, shipment: Shipment) -> dict:
         "contract_number": contract_number,
         "ship_date": shipment.ship_date,
         "buyer": shipment.buyer,
+        "buyer_id": shipment.buyer_id,
         "carrier": shipment.carrier,
         "carrier_id": shipment.carrier_id,
         "carrier_name": carrier_name,

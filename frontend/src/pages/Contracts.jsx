@@ -46,7 +46,7 @@ export default function Contracts() {
     volume_committed_dozens: '', notes: '',
   })
   const [buyerForm, setBuyerForm] = useState({
-    name: '', contact_name: '', phone: '', email: '', address: '', notes: '',
+    name: '', contact_name: '', phone: '', email: '', address: '', notes: '', customer_type: '',
   })
 
   const load = async () => {
@@ -56,14 +56,14 @@ export default function Contracts() {
         getPriceHistory(), getSpotSales(),
         getBuyers(), getFlocks({ status: 'active' }), getEggGrades(),
       ])
-      setContracts(contractsRes.data)
+      setContracts(contractsRes.data || [])
       setDashboard(dashRes.data)
-      setAlerts(alertsRes.data)
-      setPriceHistory(priceRes.data)
-      setSpotSales(spotRes.data)
-      setBuyers(buyersRes.data)
-      setFlocks(flocksRes.data)
-      setGrades(gradesRes.data)
+      setAlerts(alertsRes.data || [])
+      setPriceHistory(priceRes.data || [])
+      setSpotSales(spotRes.data || [])
+      setBuyers(buyersRes.data || [])
+      setFlocks(flocksRes.data || [])
+      setGrades(gradesRes.data || [])
     } catch (err) {
       showToast('Error loading data', 'error')
     }
@@ -133,9 +133,9 @@ export default function Contracts() {
   }
 
   const handleBuyerSelect = (opt) => {
-    const b = buyers.find(x => x.id === opt?.value)
+    const b = opt ? buyers.find(x => x.id === opt.value) : null
     setContractForm(prev => ({
-      ...prev, buyer_id: opt?.value || '', buyer: b?.name || prev.buyer,
+      ...prev, buyer_id: opt?.value || '', buyer: b?.name || '',
     }))
   }
 
@@ -157,7 +157,7 @@ export default function Contracts() {
       await createBuyer(buyerForm)
       showToast('Buyer created')
       setCreateBuyerOpen(false)
-      setBuyerForm({ name: '', contact_name: '', phone: '', email: '', address: '', notes: '' })
+      setBuyerForm({ name: '', contact_name: '', phone: '', email: '', address: '', notes: '', customer_type: '' })
       load()
     } catch (err) {
       showToast(err.response?.data?.detail || 'Error', 'error')
@@ -169,6 +169,7 @@ export default function Contracts() {
     setBuyerForm({
       name: b.name, contact_name: b.contact_name || '', phone: b.phone || '',
       email: b.email || '', address: b.address || '', notes: b.notes || '',
+      customer_type: b.customer_type || '',
     })
     setEditBuyerOpen(true)
   }
@@ -181,7 +182,7 @@ export default function Contracts() {
       await updateBuyer(editBuyerTarget.id, buyerForm)
       showToast('Buyer updated')
       setEditBuyerOpen(false); setEditBuyerTarget(null)
-      setBuyerForm({ name: '', contact_name: '', phone: '', email: '', address: '', notes: '' })
+      setBuyerForm({ name: '', contact_name: '', phone: '', email: '', address: '', notes: '', customer_type: '' })
       load()
     } catch (err) {
       showToast(err.response?.data?.detail || 'Error', 'error')
@@ -320,7 +321,7 @@ export default function Contracts() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm mb-4">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm mb-4">
                 <div>
                   <p className="text-[10px] text-lvf-muted">Flocks</p>
                   <p className="font-medium">{d.assigned_flocks} / {d.num_flocks}</p>
@@ -330,12 +331,16 @@ export default function Contracts() {
                   <p className="font-medium">{d.price_per_dozen ? `$${d.price_per_dozen.toFixed(2)}` : '—'}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-lvf-muted">Shipments</p>
-                  <p className="font-medium">{d.num_shipments}</p>
+                  <p className="text-[10px] text-lvf-muted">Skids Shipped</p>
+                  <p className="font-medium">{Math.round(d.volume_shipped_dozens / 900)}</p>
                 </div>
                 <div>
                   <p className="text-[10px] text-lvf-muted">Revenue</p>
                   <p className="font-medium text-lvf-success">${d.total_revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-lvf-muted">Shipments</p>
+                  <p className="font-medium">{d.num_shipments}</p>
                 </div>
                 <div>
                   <p className="text-[10px] text-lvf-muted">Grade</p>
@@ -469,7 +474,14 @@ export default function Contracts() {
             <div key={b.id} className={`glass-card p-4 ${!b.is_active ? 'opacity-50' : ''}`}>
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <h4 className="font-semibold text-lg">{b.name}</h4>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-semibold text-lg">{b.name}</h4>
+                    {b.customer_type && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-lvf-accent/20 text-lvf-accent capitalize">
+                        {b.customer_type}
+                      </span>
+                    )}
+                  </div>
                   {b.contact_name && <p className="text-xs text-lvf-muted">{b.contact_name}</p>}
                 </div>
                 <div className="flex gap-1">
@@ -632,12 +644,14 @@ export default function Contracts() {
                 value={gradeOptions.find(o => o.value === contractForm.grade) || null}
                 onChange={(opt) => setContractForm({ ...contractForm, grade: opt?.value || '' })}
                 placeholder="Any" isClearable />
+              <p className="text-[10px] text-lvf-muted mt-1">(grading done by buyer)</p>
             </div>
             <div>
               <label className="block text-sm text-lvf-muted mb-1">Vol. Commitment (doz)</label>
               <input className="glass-input w-full" type="number" min="0" value={contractForm.volume_committed_dozens}
                 placeholder="e.g. 500000"
                 onChange={e => setContractForm({ ...contractForm, volume_committed_dozens: e.target.value })} />
+              <p className="text-[10px] text-lvf-muted mt-1">Optional — leave blank if open-ended</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -737,10 +751,23 @@ export default function Contracts() {
       {/* Create Buyer Modal */}
       <Modal isOpen={createBuyerOpen} onClose={() => setCreateBuyerOpen(false)} title="Add Buyer" size="md">
         <form onSubmit={handleCreateBuyer} className="space-y-4">
-          <div>
-            <label className="block text-sm text-lvf-muted mb-1">Company / Buyer Name *</label>
-            <input className="glass-input w-full" required value={buyerForm.name} placeholder="Buyer name"
-              onChange={e => setBuyerForm({ ...buyerForm, name: e.target.value })} />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-lvf-muted mb-1">Company / Buyer Name *</label>
+              <input className="glass-input w-full" required value={buyerForm.name} placeholder="Buyer name"
+                onChange={e => setBuyerForm({ ...buyerForm, name: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-sm text-lvf-muted mb-1">Customer Type</label>
+              <select className="glass-input w-full" value={buyerForm.customer_type}
+                onChange={e => setBuyerForm({ ...buyerForm, customer_type: e.target.value })}>
+                <option value="">Select type...</option>
+                <option value="breaker">Breaker</option>
+                <option value="broker">Broker</option>
+                <option value="retail">Retail</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -782,10 +809,23 @@ export default function Contracts() {
       <Modal isOpen={editBuyerOpen} onClose={() => { setEditBuyerOpen(false); setEditBuyerTarget(null) }}
         title={`Edit Buyer — ${editBuyerTarget?.name || ''}`} size="md">
         <form onSubmit={handleUpdateBuyer} className="space-y-4">
-          <div>
-            <label className="block text-sm text-lvf-muted mb-1">Name *</label>
-            <input className="glass-input w-full" required value={buyerForm.name}
-              onChange={e => setBuyerForm({ ...buyerForm, name: e.target.value })} />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-lvf-muted mb-1">Name *</label>
+              <input className="glass-input w-full" required value={buyerForm.name}
+                onChange={e => setBuyerForm({ ...buyerForm, name: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-sm text-lvf-muted mb-1">Customer Type</label>
+              <select className="glass-input w-full" value={buyerForm.customer_type}
+                onChange={e => setBuyerForm({ ...buyerForm, customer_type: e.target.value })}>
+                <option value="">Select type...</option>
+                <option value="breaker">Breaker</option>
+                <option value="broker">Broker</option>
+                <option value="retail">Retail</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>

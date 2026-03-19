@@ -21,6 +21,7 @@ class BuyerCreate(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     address: Optional[str] = None
+    customer_type: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -30,6 +31,7 @@ class BuyerUpdate(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     address: Optional[str] = None
+    customer_type: Optional[str] = None
     is_active: Optional[bool] = None
     notes: Optional[str] = None
 
@@ -41,6 +43,7 @@ class BuyerResponse(BaseModel):
     phone: Optional[str]
     email: Optional[str]
     address: Optional[str]
+    customer_type: Optional[str] = None
     notes: Optional[str]
     is_active: bool
     created_at: datetime

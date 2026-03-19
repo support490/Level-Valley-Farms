@@ -129,8 +129,10 @@ class PickupItemResponse(BaseModel):
     flock_number: str = ""
     skids_estimated: int
     skids_actual: Optional[int]
+    skids_received: Optional[int] = None
     grade: Optional[str]
     grade_label: str = ""
+    condition: Optional[str] = None
     notes: Optional[str]
 
     model_config = {"from_attributes": True}
@@ -145,6 +147,7 @@ class PickupJobResponse(BaseModel):
     trailer_id: Optional[str] = None
     driver: Optional[DriverResponse] = None
     status: str
+    arrival_status: Optional[str] = "pending"
     completed_date: Optional[str]
     notes: Optional[str]
     items: List[PickupItemResponse] = []
@@ -159,7 +162,8 @@ class PickupJobResponse(BaseModel):
 
 class ShipmentLineCreate(BaseModel):
     flock_id: Optional[str] = None
-    grade: str = Field(..., min_length=1)
+    contract_id: Optional[str] = None
+    grade: str = Field("ungraded")
     skids: int = Field(..., gt=0)
     dozens_per_skid: int = Field(900, gt=0)
     price_per_dozen: Optional[float] = Field(None, gt=0)
@@ -171,6 +175,7 @@ class ShipmentCreate(BaseModel):
     contract_id: Optional[str] = None
     ship_date: str
     buyer: str = Field(..., min_length=1, max_length=200)
+    buyer_id: Optional[str] = None
     carrier: Optional[str] = None
     carrier_id: Optional[str] = None
     destination: Optional[str] = None
@@ -189,8 +194,11 @@ class ShipmentLineResponse(BaseModel):
     shipment_id: str
     flock_id: Optional[str]
     flock_number: str = ""
+    contract_id: Optional[str] = None
+    contract_number: str = ""
     grade: str
     grade_label: str = ""
+    condition: Optional[str] = None
     skids: int
     dozens_per_skid: int
     total_dozens: int = 0
@@ -209,6 +217,7 @@ class ShipmentResponse(BaseModel):
     contract_number: str = ""
     ship_date: str
     buyer: str
+    buyer_id: Optional[str] = None
     carrier: Optional[str]
     carrier_id: Optional[str]
     carrier_name: str = ""
@@ -303,6 +312,66 @@ class EggReturnResponse(BaseModel):
     lines: List[EggReturnLineResponse] = []
     total_skids: int = 0
     total_dozens: int = 0
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ── Warehouse Receiving ──
+
+class ReceivePickupItem(BaseModel):
+    """Used when receiving a pickup at the warehouse."""
+    item_id: str = Field(..., min_length=1)
+    skids_received: int = Field(..., ge=0)
+    condition: str = Field("clean")
+
+
+# ── Buyer Grading Reports ──
+
+class BuyerGradingReportLineCreate(BaseModel):
+    flock_id: Optional[str] = None
+    grade: str = Field(..., min_length=1)
+    count_dozens: int = Field(0, ge=0)
+    percentage: Optional[float] = Field(None, ge=0, le=100)
+    notes: Optional[str] = None
+
+
+class BuyerGradingReportCreate(BaseModel):
+    shipment_id: str = Field(..., min_length=1)
+    buyer_id: str = Field(..., min_length=1)
+    report_date: str
+    notes: Optional[str] = None
+    lines: List[BuyerGradingReportLineCreate] = Field(..., min_length=1)
+
+    @field_validator("report_date")
+    @classmethod
+    def validate_date(cls, v):
+        return _validate_date_str(v, "report_date")
+
+
+class BuyerGradingReportLineResponse(BaseModel):
+    id: str
+    grading_report_id: str
+    flock_id: Optional[str]
+    flock_number: str = ""
+    grade: str
+    grade_label: str = ""
+    count_dozens: int
+    percentage: Optional[float]
+    notes: Optional[str]
+
+    model_config = {"from_attributes": True}
+
+
+class BuyerGradingReportResponse(BaseModel):
+    id: str
+    shipment_id: str
+    shipment_number: str = ""
+    buyer_id: str
+    buyer_name: str = ""
+    report_date: str
+    notes: Optional[str]
+    lines: List[BuyerGradingReportLineResponse] = []
     created_at: datetime
 
     model_config = {"from_attributes": True}

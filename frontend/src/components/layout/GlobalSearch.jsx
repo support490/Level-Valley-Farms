@@ -53,6 +53,11 @@ export default function GlobalSearch() {
     return () => document.removeEventListener('keydown', handleKey)
   }, [])
 
+  // Clean up debounce timer on unmount
+  useEffect(() => {
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  }, [])
+
   const handleSearch = (value) => {
     setQuery(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -67,7 +72,7 @@ export default function GlobalSearch() {
       setLoading(true)
       try {
         const res = await globalSearch(value)
-        setResults(res.data)
+        setResults(res.data || [])
         setOpen(true)
       } finally {
         setLoading(false)

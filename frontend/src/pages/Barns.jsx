@@ -1,16 +1,24 @@
-import { useState, useEffect } from 'react'
-import { Plus, Pencil, Trash2, Warehouse } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, Pencil, Trash2, MapPin } from 'lucide-react'
+import { GoogleMap, Marker, InfoWindow } from '@react-google-maps/api'
+import { useGoogleMaps } from '../components/common/GoogleMapsProvider'
 import { getBarns, createBarn, updateBarn, deleteBarn } from '../api/barns'
-import { getGrowers } from '../api/growers'
+import { getGrowers, updateGrower } from '../api/growers'
+import { getSettings } from '../api/settings'
+import api from '../api/client'
 import SearchSelect from '../components/common/SearchSelect'
 import Modal from '../components/common/Modal'
 import ConfirmDialog from '../components/common/ConfirmDialog'
 import Toast from '../components/common/Toast'
 import useToast from '../hooks/useToast'
 
-const emptyForm = { name: '', barn_type: 'pullet', bird_capacity: '', grower_id: '', notes: '' }
+const emptyForm = { name: '', barn_type: 'pullet', bird_capacity: '', grower_id: '', notes: '', latitude: '', longitude: '' }
+const pinMapStyle = { width: '100%', height: '300px', borderRadius: '8px' }
+const BARNS_BUILD_CHECK = 'BARNS_V2_2026_0319'
+const defaultPinCenter = { lat: 40.75, lng: -77.40 }
 
 export default function Barns() {
+  const { isLoaded } = useGoogleMaps()
   const [barns, setBarns] = useState([])
   const [growers, setGrowers] = useState([])
   const [modalOpen, setModalOpen] = useState(false)
@@ -23,14 +31,46 @@ export default function Barns() {
   const [submitting, setSubmitting] = useState(false)
   const { toast, showToast, hideToast } = useToast()
 
+  // Map context pins (all barns + warehouse) for showing on the edit map
+  const [allMapBarns, setAllMapBarns] = useState([])
+  const [warehouse, setWarehouse] = useState(null)
+  const [mapReady, setMapReady] = useState(false)
+  const [needsPan, setNeedsPan] = useState(null) // grower_id to pan to
+  const mapRef = useRef(null)
+
   const load = async () => {
-    const params = {}
-    if (filterType) params.barn_type = filterType
-    if (filterGrower) params.grower_id = filterGrower.value
-    const [barnsRes, growersRes] = await Promise.all([getBarns(params), getGrowers()])
-    setBarns(barnsRes.data)
-    setGrowers(growersRes.data)
+    try {
+      const params = {}
+      if (filterType) params.barn_type = filterType
+      if (filterGrower) params.grower_id = filterGrower.value
+      const [barnsRes, growersRes] = await Promise.all([getBarns(params), getGrowers()])
+      setBarns(barnsRes.data || [])
+      setGrowers(growersRes.data || [])
+    } catch (err) {
+      showToast('Error loading data', 'error')
+    }
   }
+
+  // Load map context data (all barn pins + warehouse)
+  useEffect(() => {
+    const loadMapContext = async () => {
+      try {
+        const [mapRes, settingsRes] = await Promise.all([
+          api.get('/inventory/map-data'),
+          getSettings(),
+        ])
+        const data = mapRes.data || {}
+        setAllMapBarns(data.barns || [])
+        const s = settingsRes.data
+        const wLat = parseFloat(s.warehouse_latitude?.value)
+        const wLng = parseFloat(s.warehouse_longitude?.value)
+        if (wLat && wLng) {
+          setWarehouse({ lat: wLat, lng: wLng, address: s.warehouse_address?.value || 'Warehouse' })
+        }
+      } catch {}
+    }
+    loadMapContext()
+  }, [])
 
   useEffect(() => { load() }, [filterType, filterGrower])
 
@@ -41,10 +81,40 @@ export default function Barns() {
     b.grower_name.toLowerCase().includes(search.toLowerCase())
   )
 
-  const openCreate = () => { setEditing(null); setForm(emptyForm); setModalOpen(true) }
+  // Effect: when map is ready AND we have a grower to pan to, geocode and pan
+  useEffect(() => {
+    if (!mapReady || !needsPan || !isLoaded || !mapRef.current) return
+    const grower = growers.find(g => g.id === needsPan)
+    if (!grower?.location) return
+    new window.google.maps.Geocoder().geocode({ address: grower.location }, (results, status) => {
+      if (status === 'OK' && results[0] && mapRef.current) {
+        mapRef.current.panTo({
+          lat: results[0].geometry.location.lat(),
+          lng: results[0].geometry.location.lng(),
+        })
+        mapRef.current.setZoom(16)
+      }
+      setNeedsPan(null)
+    })
+  }, [mapReady, needsPan, isLoaded, growers])
+
+  const openCreate = () => {
+    setEditing(null)
+    setForm(emptyForm)
+    setMapReady(false)
+    setNeedsPan(null)
+    setModalOpen(true)
+  }
+
   const openEdit = (b) => {
     setEditing(b)
-    setForm({ name: b.name, barn_type: b.barn_type, bird_capacity: b.bird_capacity, grower_id: b.grower_id, notes: b.notes || '' })
+    setForm({
+      name: b.name, barn_type: b.barn_type, bird_capacity: b.bird_capacity,
+      grower_id: b.grower_id, notes: b.notes || '',
+      latitude: b.latitude || '', longitude: b.longitude || '',
+    })
+    setMapReady(false)
+    setNeedsPan(b.grower_id)
     setModalOpen(true)
   }
 
@@ -58,7 +128,12 @@ export default function Barns() {
     }
     setSubmitting(true)
     try {
-      const payload = { ...form, bird_capacity: cap }
+      const payload = {
+        ...form,
+        bird_capacity: cap,
+        latitude: form.latitude ? parseFloat(form.latitude) : null,
+        longitude: form.longitude ? parseFloat(form.longitude) : null,
+      }
       if (editing) {
         await updateBarn(editing.id, payload)
         showToast('Barn updated')
@@ -87,6 +162,11 @@ export default function Barns() {
   }
 
   const capacityPct = (b) => b.bird_capacity > 0 ? Math.round((b.current_bird_count / b.bird_capacity) * 100) : 0
+
+  // Determine which barns belong to the current grower (draggable) vs others (static context)
+  const currentGrowerId = form.grower_id
+  const growerBarns = allMapBarns.filter(b => b.grower_id === currentGrowerId && b.latitude && b.longitude)
+  const otherBarns = allMapBarns.filter(b => b.grower_id !== currentGrowerId && b.latitude && b.longitude)
 
   return (
     <div>
@@ -141,7 +221,16 @@ export default function Barns() {
           <tbody>
             {filtered.map(b => (
               <tr key={b.id}>
-                <td className="font-medium">{b.name}</td>
+                <td className="font-medium">
+                  <span className="flex items-center gap-1.5">
+                    {b.name}
+                    {b.latitude && b.longitude ? (
+                      <MapPin size={11} className="text-lvf-success" title="Location set" />
+                    ) : (
+                      <MapPin size={11} className="text-lvf-muted opacity-30" title="No location" />
+                    )}
+                  </span>
+                </td>
                 <td className="text-lvf-muted">{b.grower_name}</td>
                 <td>
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -180,7 +269,7 @@ export default function Barns() {
         </table>
       </div>
 
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit Barn' : 'Add Barn'}>
+      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit Barn' : 'Add Barn'} maxWidth="max-w-2xl">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm text-lvf-muted mb-1">Barn Name *</label>
@@ -191,7 +280,10 @@ export default function Barns() {
             <SearchSelect
               options={growerOptions}
               value={growerOptions.find(o => o.value === form.grower_id) || null}
-              onChange={(opt) => setForm({ ...form, grower_id: opt?.value || '' })}
+              onChange={(opt) => {
+                setForm({ ...form, grower_id: opt?.value || '' })
+                if (opt?.value) setNeedsPan(opt.value)
+              }}
               placeholder="Select grower..."
             />
           </div>
@@ -210,7 +302,169 @@ export default function Barns() {
           </div>
           <div>
             <label className="block text-sm text-lvf-muted mb-1">Notes</label>
-            <textarea className="glass-input w-full" rows={3} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+            <textarea className="glass-input w-full" rows={2} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-sm text-lvf-muted mb-1 flex items-center gap-1">
+              <MapPin size={12} /> Barn Location
+              <span className="text-lvf-muted text-[10px]">(click to place pin, drag to adjust)</span>
+            </label>
+            {isLoaded ? (
+              <div className="relative">
+                <GoogleMap
+                  mapContainerStyle={pinMapStyle}
+                  center={defaultPinCenter}
+                  zoom={10}
+                  onClick={(e) => setForm({ ...form, latitude: e.latLng.lat(), longitude: e.latLng.lng() })}
+                  options={{ mapTypeId: 'satellite', streetViewControl: false, fullscreenControl: false, mapTypeControl: false }}
+                  onLoad={(m) => {
+                    mapRef.current = m
+                    setMapReady(true)
+                  }}
+                >
+                  {/* Current barn pin (the one being placed/edited) — draggable */}
+                  {form.latitude && form.longitude && (
+                    <Marker
+                      position={{ lat: parseFloat(form.latitude), lng: parseFloat(form.longitude) }}
+                      draggable
+                      onDragEnd={(e) => setForm({ ...form, latitude: e.latLng.lat(), longitude: e.latLng.lng() })}
+                      icon={{
+                        path: 'M12 2C8 2 5 5 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-4-3-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z',
+                        fillColor: '#ef4444',
+                        fillOpacity: 1,
+                        strokeColor: '#ffffff',
+                        strokeWeight: 2,
+                        scale: 1.8,
+                        anchor: new window.google.maps.Point(12, 22),
+                      }}
+                    />
+                  )}
+
+                  {/* Other barns from same grower — draggable (so user can reposition all their barns) */}
+                  {growerBarns
+                    .filter(b => !editing || b.barn_id !== editing.id)
+                    .map(b => (
+                    <Marker
+                      key={b.barn_id}
+                      position={{ lat: b.latitude, lng: b.longitude }}
+                      draggable
+                      onDragEnd={async (e) => {
+                        try {
+                          await updateBarn(b.barn_id, { latitude: e.latLng.lat(), longitude: e.latLng.lng() })
+                          // Update local state
+                          setAllMapBarns(prev => prev.map(mb =>
+                            mb.barn_id === b.barn_id ? { ...mb, latitude: e.latLng.lat(), longitude: e.latLng.lng() } : mb
+                          ))
+                        } catch {}
+                      }}
+                      label={{ text: b.barn_name, color: '#fff', fontSize: '9px', fontWeight: 'bold' }}
+                      icon={{
+                        path: 'M12 2C8 2 5 5 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-4-3-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z',
+                        fillColor: b.barn_type === 'layer' ? '#f59e0b' : '#a855f7',
+                        fillOpacity: 1,
+                        strokeColor: '#ffffff',
+                        strokeWeight: 2,
+                        scale: 1.4,
+                        anchor: new window.google.maps.Point(12, 22),
+                        labelOrigin: new window.google.maps.Point(12, -4),
+                      }}
+                    />
+                  ))}
+
+                  {/* Grower entrance pin — draggable (only for current grower) */}
+                  {currentGrowerId && (() => {
+                    const g = (allMapBarns.find(b => b.grower_id === currentGrowerId) || {})
+                    const growerObj = growers.find(gr => gr.id === currentGrowerId)
+                    const gLat = growerObj?.latitude
+                    const gLng = growerObj?.longitude
+                    if (!gLat || !gLng) return null
+                    return (
+                      <Marker
+                        position={{ lat: gLat, lng: gLng }}
+                        draggable
+                        onDragEnd={async (e) => {
+                          try {
+                            await updateGrower(currentGrowerId, { latitude: e.latLng.lat(), longitude: e.latLng.lng() })
+                            setGrowers(prev => prev.map(gr =>
+                              gr.id === currentGrowerId ? { ...gr, latitude: e.latLng.lat(), longitude: e.latLng.lng() } : gr
+                            ))
+                          } catch {}
+                        }}
+                        label={{ text: growerObj?.name || 'Grower', color: '#fff', fontSize: '9px', fontWeight: 'bold' }}
+                        icon={{
+                          path: 'M12 2C8 2 5 5 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-4-3-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z',
+                          fillColor: '#22c55e',
+                          fillOpacity: 1,
+                          strokeColor: '#ffffff',
+                          strokeWeight: 2,
+                          scale: 1.6,
+                          anchor: new window.google.maps.Point(12, 22),
+                          labelOrigin: new window.google.maps.Point(12, -4),
+                        }}
+                      />
+                    )
+                  })()}
+
+                  {/* Other growers' barns — static context (not draggable) */}
+                  {otherBarns.map(b => (
+                    <Marker
+                      key={b.barn_id}
+                      position={{ lat: b.latitude, lng: b.longitude }}
+                      label={{ text: b.barn_name, color: '#fff', fontSize: '8px' }}
+                      opacity={0.5}
+                      icon={{
+                        path: window.google.maps.SymbolPath.CIRCLE,
+                        fillColor: b.barn_type === 'layer' ? '#f59e0b' : '#a855f7',
+                        fillOpacity: 0.5,
+                        strokeColor: '#ffffff',
+                        strokeWeight: 1,
+                        scale: 6,
+                      }}
+                    />
+                  ))}
+
+                  {/* Warehouse */}
+                  {warehouse && (
+                    <Marker
+                      position={{ lat: warehouse.lat, lng: warehouse.lng }}
+                      label={{ text: 'Warehouse', color: '#fff', fontSize: '8px' }}
+                      opacity={0.6}
+                      icon={{
+                        path: window.google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+                        fillColor: '#3b82f6',
+                        fillOpacity: 0.6,
+                        strokeColor: '#ffffff',
+                        strokeWeight: 1,
+                        scale: 5,
+                      }}
+                    />
+                  )}
+                </GoogleMap>
+                <button
+                  type="button"
+                  title="Zoom to my location"
+                  className="absolute top-2 right-2 bg-white/90 hover:bg-white text-gray-700 p-1.5 rounded shadow text-xs"
+                  onClick={() => {
+                    navigator.geolocation?.getCurrentPosition((pos) => {
+                      if (mapRef.current) {
+                        mapRef.current.panTo({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+                        mapRef.current.setZoom(16)
+                      }
+                    })
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg>
+                </button>
+              </div>
+            ) : (
+              <div className="h-[300px] bg-lvf-dark rounded-lg flex items-center justify-center text-lvf-muted text-sm">Loading map...</div>
+            )}
+            {form.latitude && form.longitude && (
+              <p className="text-[10px] text-lvf-muted mt-1">
+                {parseFloat(form.latitude).toFixed(6)}, {parseFloat(form.longitude).toFixed(6)}
+                <button type="button" onClick={() => setForm({ ...form, latitude: '', longitude: '' })} className="text-lvf-danger ml-2 hover:underline">Clear</button>
+              </p>
+            )}
           </div>
           <div className="flex gap-3 justify-end pt-2">
             <button type="button" onClick={() => setModalOpen(false)} className="glass-button-secondary">Cancel</button>

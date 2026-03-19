@@ -37,7 +37,7 @@ export default function Reports() {
   }, [activeTab, pnlPeriod, pnlYear, costMonths])
 
   const loadScorecard = async () => {
-    try { const res = await getGrowerScorecard(); setScorecard(res.data) }
+    try { const res = await getGrowerScorecard(); setScorecard(res.data || []) }
     catch { showToast('Error loading scorecard', 'error') }
   }
   const loadFarmPnl = async () => {
@@ -45,11 +45,11 @@ export default function Reports() {
     catch { showToast('Error loading P&L', 'error') }
   }
   const loadCostTrend = async () => {
-    try { const res = await getCostPerDozen(costMonths); setCostTrend(res.data) }
+    try { const res = await getCostPerDozen(costMonths); setCostTrend(res.data || []) }
     catch { showToast('Error loading cost trend', 'error') }
   }
   const loadFlockComp = async () => {
-    try { const res = await getFlockComparison(); setFlockComp(res.data) }
+    try { const res = await getFlockComparison(); setFlockComp(res.data || []) }
     catch { showToast('Error loading flock comparison', 'error') }
   }
 
