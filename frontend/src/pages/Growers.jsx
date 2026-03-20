@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Plus, Pencil, Trash2, MapPin, Phone, Mail, Warehouse,
   ChevronDown, ChevronRight, Bird
@@ -8,6 +8,8 @@ import { useGoogleMaps } from '../components/common/GoogleMapsProvider'
 import AddressAutocomplete from '../components/common/AddressAutocomplete'
 import { getGrowers, createGrower, updateGrower, deleteGrower } from '../api/growers'
 import { createBarn, updateBarn, deleteBarn } from '../api/barns'
+import { getSettings } from '../api/settings'
+import api from '../api/client'
 import Modal from '../components/common/Modal'
 import ConfirmDialog from '../components/common/ConfirmDialog'
 import Toast from '../components/common/Toast'
@@ -31,6 +33,11 @@ export default function Growers() {
   const [growerForm, setGrowerForm] = useState(emptyGrowerForm)
   const [growerCoords, setGrowerCoords] = useState(null) // { lat, lng } from address autocomplete
   const [barnForm, setBarnForm] = useState(emptyBarnForm)
+  const [barnMapReady, setBarnMapReady] = useState(false)
+  const [barnNeedsPan, setBarnNeedsPan] = useState(null) // grower location string to geocode
+  const barnMapRef = useRef(null)
+  const [allMapBarns, setAllMapBarns] = useState([])
+  const [warehousePin, setWarehousePin] = useState(null)
   const [expandedGrowers, setExpandedGrowers] = useState({})
   const [search, setSearch] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -47,6 +54,64 @@ export default function Growers() {
   }
 
   useEffect(() => { load() }, [])
+
+  // Load map context (all barns + warehouse) for barn edit map
+  // Geocode grower addresses for barns without coordinates
+  useEffect(() => {
+    if (!mapsLoaded) return
+    const loadMapCtx = async () => {
+      try {
+        const [mapRes, settingsRes] = await Promise.all([api.get('/inventory/map-data'), getSettings()])
+        const rawBarns = (mapRes.data || {}).barns || []
+
+        // Geocode grower addresses for barns missing coords
+        const geoCache = {}
+        const resolved = []
+        for (const b of rawBarns) {
+          if (b.latitude != null && b.longitude != null) {
+            resolved.push(b)
+          } else if (b.grower_location) {
+            if (!geoCache[b.grower_location]) {
+              geoCache[b.grower_location] = await new Promise(resolve => {
+                new window.google.maps.Geocoder().geocode({ address: b.grower_location }, (results, status) => {
+                  if (status === 'OK' && results[0]) {
+                    resolve({ lat: results[0].geometry.location.lat(), lng: results[0].geometry.location.lng() })
+                  } else resolve(null)
+                })
+              })
+            }
+            const geo = geoCache[b.grower_location]
+            if (geo) {
+              const offset = resolved.filter(r => r.grower_id === b.grower_id && !r.has_coordinates).length
+              resolved.push({ ...b, latitude: geo.lat + offset * 0.0002, longitude: geo.lng + offset * 0.0002 })
+            }
+          }
+        }
+        setAllMapBarns(resolved)
+
+        const s = settingsRes.data
+        const wLat = parseFloat(s.warehouse_latitude?.value)
+        const wLng = parseFloat(s.warehouse_longitude?.value)
+        if (wLat && wLng) setWarehousePin({ lat: wLat, lng: wLng })
+      } catch {}
+    }
+    loadMapCtx()
+  }, [mapsLoaded])
+
+  // Effect: pan barn map to grower address when map is ready
+  useEffect(() => {
+    if (!barnMapReady || !barnNeedsPan || !mapsLoaded || !barnMapRef.current) return
+    new window.google.maps.Geocoder().geocode({ address: barnNeedsPan }, (results, status) => {
+      if (status === 'OK' && results[0] && barnMapRef.current) {
+        barnMapRef.current.panTo({
+          lat: results[0].geometry.location.lat(),
+          lng: results[0].geometry.location.lng(),
+        })
+        barnMapRef.current.setZoom(16)
+      }
+      setBarnNeedsPan(null)
+    })
+  }, [barnMapReady, barnNeedsPan, mapsLoaded])
 
   const filtered = growers.filter(g =>
     g.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -114,6 +179,10 @@ export default function Growers() {
     setBarnGrowerId(growerId)
     setEditingBarn(null)
     setBarnForm(emptyBarnForm)
+    setBarnMapReady(false)
+    // Pan to grower address
+    const grower = growers.find(g => g.id === growerId)
+    setBarnNeedsPan(grower?.location || null)
     setBarnModalOpen(true)
   }
 
@@ -121,6 +190,10 @@ export default function Growers() {
     setBarnGrowerId(growerId)
     setEditingBarn(barn)
     setBarnForm({ name: barn.name, barn_type: barn.barn_type, bird_capacity: barn.bird_capacity, notes: barn.notes || '', latitude: barn.latitude || null, longitude: barn.longitude || null })
+    setBarnMapReady(false)
+    // Pan to grower address
+    const grower = growers.find(g => g.id === growerId)
+    setBarnNeedsPan(grower?.location || null)
     setBarnModalOpen(true)
   }
 
@@ -454,24 +527,109 @@ export default function Growers() {
           {mapsLoaded && (
             <div>
               <label className="block text-sm text-lvf-muted mb-1">
-                Barn Location <span className="text-xs">(click map to place pin)</span>
+                Barn Location <span className="text-xs">(click to place pin, drag to adjust)</span>
               </label>
               <div className="relative">
                 <GoogleMap
-                  mapContainerStyle={barnMapStyle}
-                  center={barnForm.latitude && barnForm.longitude
-                    ? { lat: barnForm.latitude, lng: barnForm.longitude }
-                    : growerCoords || PA_CENTER}
-                  zoom={barnForm.latitude ? 15 : growerCoords ? 14 : 8}
+                  mapContainerStyle={{ width: '100%', height: '300px', borderRadius: '8px' }}
+                  center={PA_CENTER}
+                  zoom={8}
                   onClick={(e) => setBarnForm({ ...barnForm, latitude: e.latLng.lat(), longitude: e.latLng.lng() })}
                   options={{ mapTypeId: 'satellite', streetViewControl: false, mapTypeControl: false, fullscreenControl: false }}
-                  onLoad={(m) => { window._growerBarnPinMap = m }}
+                  onLoad={(m) => { barnMapRef.current = m; setBarnMapReady(true) }}
                 >
+                  {/* Current barn being placed/edited — red, draggable */}
                   {barnForm.latitude && barnForm.longitude && (
                     <Marker
                       position={{ lat: barnForm.latitude, lng: barnForm.longitude }}
                       draggable
                       onDragEnd={(e) => setBarnForm({ ...barnForm, latitude: e.latLng.lat(), longitude: e.latLng.lng() })}
+                      icon={{
+                        path: 'M12 2C8 2 5 5 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-4-3-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z',
+                        fillColor: '#ef4444',
+                        fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2, scale: 1.8,
+                        anchor: new window.google.maps.Point(12, 22),
+                      }}
+                    />
+                  )}
+
+                  {/* Same-grower barns — draggable, full opacity */}
+                  {allMapBarns
+                    .filter(b => b.grower_id === barnGrowerId && b.latitude && b.longitude && (!editingBarn || b.barn_id !== editingBarn.id))
+                    .map(b => (
+                    <Marker
+                      key={b.barn_id}
+                      position={{ lat: b.latitude, lng: b.longitude }}
+                      draggable
+                      onDragEnd={async (e) => {
+                        try {
+                          await updateBarn(b.barn_id, { latitude: e.latLng.lat(), longitude: e.latLng.lng() })
+                          setAllMapBarns(prev => prev.map(mb => mb.barn_id === b.barn_id ? { ...mb, latitude: e.latLng.lat(), longitude: e.latLng.lng() } : mb))
+                        } catch {}
+                      }}
+                      label={{ text: b.barn_name, color: '#fff', fontSize: '9px', fontWeight: 'bold' }}
+                      icon={{
+                        path: 'M12 2C8 2 5 5 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-4-3-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z',
+                        fillColor: b.barn_type === 'layer' ? '#f59e0b' : '#a855f7',
+                        fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2, scale: 1.4,
+                        anchor: new window.google.maps.Point(12, 22),
+                        labelOrigin: new window.google.maps.Point(12, -4),
+                      }}
+                    />
+                  ))}
+
+                  {/* Grower entrance pin — green, draggable */}
+                  {barnGrowerId && (() => {
+                    const gr = growers.find(g => g.id === barnGrowerId)
+                    if (!gr?.latitude || !gr?.longitude) return null
+                    return (
+                      <Marker
+                        position={{ lat: gr.latitude, lng: gr.longitude }}
+                        draggable
+                        onDragEnd={async (e) => {
+                          try {
+                            await updateGrower(gr.id, { latitude: e.latLng.lat(), longitude: e.latLng.lng() })
+                            setGrowers(prev => prev.map(g => g.id === gr.id ? { ...g, latitude: e.latLng.lat(), longitude: e.latLng.lng() } : g))
+                          } catch {}
+                        }}
+                        label={{ text: `${gr.name} (entrance)`, color: '#fff', fontSize: '9px', fontWeight: 'bold' }}
+                        icon={{
+                          path: 'M12 2C8 2 5 5 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-4-3-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z',
+                          fillColor: '#22c55e',
+                          fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2, scale: 1.6,
+                          anchor: new window.google.maps.Point(12, 22),
+                          labelOrigin: new window.google.maps.Point(12, -4),
+                        }}
+                      />
+                    )
+                  })()}
+
+                  {/* Other growers' barns — dimmed context */}
+                  {allMapBarns
+                    .filter(b => b.grower_id !== barnGrowerId && b.latitude && b.longitude)
+                    .map(b => (
+                    <Marker
+                      key={b.barn_id}
+                      position={{ lat: b.latitude, lng: b.longitude }}
+                      opacity={0.4}
+                      label={{ text: b.barn_name, color: '#fff', fontSize: '8px' }}
+                      icon={{
+                        path: window.google.maps.SymbolPath.CIRCLE,
+                        fillColor: b.barn_type === 'layer' ? '#f59e0b' : '#a855f7',
+                        fillOpacity: 0.4, strokeColor: '#fff', strokeWeight: 1, scale: 5,
+                      }}
+                    />
+                  ))}
+
+                  {/* Warehouse — dimmed context */}
+                  {warehousePin && (
+                    <Marker
+                      position={warehousePin}
+                      opacity={0.5}
+                      icon={{
+                        path: window.google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+                        fillColor: '#3b82f6', fillOpacity: 0.5, strokeColor: '#fff', strokeWeight: 1, scale: 5,
+                      }}
                     />
                   )}
                 </GoogleMap>
@@ -481,8 +639,10 @@ export default function Growers() {
                   className="absolute top-2 right-2 bg-white/90 hover:bg-white text-gray-700 p-1.5 rounded shadow text-xs"
                   onClick={() => {
                     navigator.geolocation?.getCurrentPosition((pos) => {
-                      const m = window._growerBarnPinMap
-                      if (m) { m.panTo({ lat: pos.coords.latitude, lng: pos.coords.longitude }); m.setZoom(16) }
+                      if (barnMapRef.current) {
+                        barnMapRef.current.panTo({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+                        barnMapRef.current.setZoom(16)
+                      }
                     })
                   }}
                 >
@@ -492,6 +652,7 @@ export default function Growers() {
               {barnForm.latitude && (
                 <p className="text-[10px] text-lvf-muted mt-1">
                   {barnForm.latitude.toFixed(5)}, {barnForm.longitude.toFixed(5)}
+                  <button type="button" onClick={() => setBarnForm({ ...barnForm, latitude: null, longitude: null })} className="text-lvf-danger ml-2 hover:underline text-[10px]">Clear</button>
                 </p>
               )}
             </div>

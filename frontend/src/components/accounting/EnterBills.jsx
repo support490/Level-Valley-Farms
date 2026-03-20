@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { createBill, getAccounts, getVendors } from '../../api/accounting'
+import { getSettings, updateSettings } from '../../api/settings'
 import useToast from '../../hooks/useToast'
 import Toast from '../common/Toast'
 import AddressAutocomplete from '../common/AddressAutocomplete'
 
-const TERMS_OPTIONS = ['Net 15', 'Net 30', 'Net 45', 'Net 60', 'Due on Receipt']
+const DEFAULT_TERMS_OPTIONS = ['Net 15', 'Net 30', 'Net 45', 'Net 60', 'Due on Receipt']
 
 function computeDueDate(billDate, terms) {
   if (!billDate) return ''
@@ -34,14 +35,31 @@ export default function EnterBills({ onSaved }) {
   const [accounts, setAccounts] = useState([])
   const [activeTab, setActiveTab] = useState('expenses')
   const [submitting, setSubmitting] = useState(false)
+  const [termsOptions, setTermsOptions] = useState(DEFAULT_TERMS_OPTIONS)
+  const [billPrefix, setBillPrefix] = useState('BILL-')
+  const [nextNumber, setNextNumber] = useState('')
   const { toast, showToast, hideToast } = useToast()
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [acctRes, vendorRes] = await Promise.all([getAccounts(), getVendors()])
+        const [acctRes, vendorRes, settingsRes] = await Promise.all([getAccounts(), getVendors(), getSettings()])
         setAccounts(acctRes.data || [])
         setVendors(vendorRes.data || [])
+
+        const s = settingsRes.data || {}
+        try {
+          const terms = JSON.parse(s.payment_terms?.value || '[]')
+          if (terms.length > 0) setTermsOptions(terms)
+        } catch {}
+
+        const prefix = s.bill_prefix?.value || 'BILL-'
+        const num = s.bill_next_number?.value || ''
+        setBillPrefix(prefix)
+        setNextNumber(num)
+
+        const dt = s.default_bill_terms?.value || 'Net 30'
+        setForm(prev => ({ ...prev, terms: dt, due_date: computeDueDate(prev.bill_date, dt) }))
       } catch {
         try { const acctRes = await getAccounts(); setAccounts(acctRes.data || []) } catch {}
       }
@@ -95,8 +113,9 @@ export default function EnterBills({ onSaved }) {
     if (amountDue <= 0) { showToast('Add at least one line with an amount', 'error'); return }
     setSubmitting(true)
     try {
+      const billNumber = nextNumber ? `${billPrefix}${nextNumber}` : `BILL-${Date.now()}`
       const payload = {
-        bill_number: 'BILL-' + Date.now(), vendor_name: form.vendor_name,
+        bill_number: billNumber, vendor_name: form.vendor_name,
         bill_date: form.bill_date, due_date: form.due_date, amount: amountDue,
         description: form.description, notes: form.notes, terms: form.terms,
         ref_no: form.ref_no, discount_date: form.discount_date || null,
@@ -107,6 +126,14 @@ export default function EnterBills({ onSaved }) {
       }
       await createBill(payload)
       showToast('Bill saved successfully')
+
+      // Increment next number
+      if (nextNumber) {
+        const newNum = String(parseInt(nextNumber, 10) + 1)
+        setNextNumber(newNum)
+        try { await updateSettings({ bill_next_number: newNum }) } catch {}
+      }
+
       if (onSaved) onSaved()
       if (andNew) { setForm(initialForm()); setExpenseLines([emptyExpenseLine()]); setItemLines([emptyItemLine()]) }
     } catch (err) {
@@ -166,7 +193,7 @@ export default function EnterBills({ onSaved }) {
               <div>
                 <label style={{ fontSize: '8pt', color: '#999', display: 'block', marginBottom: 1 }}>Terms</label>
                 <select className="glass-input text-sm" value={form.terms} onChange={e => updateField('terms', e.target.value)}>
-                  {TERMS_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                  {termsOptions.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
               <div>

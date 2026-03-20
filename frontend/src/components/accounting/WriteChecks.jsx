@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getBankAccounts, getAccounts, createCheck, getVendors } from '../../api/accounting'
+import { getSettings, updateSettings } from '../../api/settings'
 import numberToWords from '../../utils/numberToWords'
 import useToast from '../../hooks/useToast'
 import Toast from '../common/Toast'
@@ -32,19 +33,30 @@ export default function WriteChecks() {
   const [activeTab, setActiveTab] = useState('expenses')
   const [showPrint, setShowPrint] = useState(false)
   const [savedCheck, setSavedCheck] = useState(null)
+  const [checkPrefix, setCheckPrefix] = useState('CHK-')
+  const [nextCheckNumber, setNextCheckNumber] = useState('')
   const { toast, showToast, hideToast } = useToast()
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [bankRes, acctRes, vendorRes] = await Promise.all([
-          getBankAccounts(), getAccounts(), getVendors(),
+        const [bankRes, acctRes, vendorRes, settingsRes] = await Promise.all([
+          getBankAccounts(), getAccounts(), getVendors(), getSettings(),
         ])
         const banks = bankRes.data || []
         setBankAccounts(banks)
         if (banks.length > 0) setSelectedBankId(banks[0].id)
         setAccounts(acctRes.data || [])
         setVendors(vendorRes.data || [])
+
+        const s = settingsRes.data || {}
+        const prefix = s.check_prefix?.value || 'CHK-'
+        const num = s.check_next_number?.value || ''
+        setCheckPrefix(prefix)
+        setNextCheckNumber(num)
+        if (num) {
+          setCheckForm(prev => ({ ...prev, check_number: `${prefix}${num}` }))
+        }
       } catch {}
     }
     load()
@@ -124,6 +136,14 @@ export default function WriteChecks() {
       }))
       setSavedCheck(saved)
       showToast(`Check saved: ${saved.check_number || 'To Print'}`)
+
+      // Increment next check number
+      if (nextCheckNumber) {
+        const newNum = String(parseInt(nextCheckNumber, 10) + 1)
+        setNextCheckNumber(newNum)
+        try { await updateSettings({ check_next_number: newNum }) } catch {}
+      }
+
       if (action === 'new') handleClear()
     } catch (err) {
       showToast(err.response?.data?.detail || 'Error saving check', 'error')

@@ -108,6 +108,7 @@ export const getBankRegister = (bankAccountId) => api.get(`/accounting/bank-regi
 
 // QB Deposits
 export const makeDeposit = (bankAccountId, data) => api.post(`/accounting/bank-accounts/${bankAccountId}/deposit`, data)
+export const getUndepositedFunds = () => api.get('/accounting/undeposited-funds')
 
 // QB Transfers
 export const transferFunds = (data) => api.post('/accounting/transfers', data)

@@ -7,7 +7,9 @@
       "Bash(taskkill:*)",
       "Bash(pip3 install:*)",
       "Bash(python3:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "WebSearch",
+      "WebFetch(domain:fitsmallbusiness.com)"
     ]
   }
 }

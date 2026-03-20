@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { Save, Database, Download, History, Sliders, Upload, Users, Plus, Edit2, Trash2, Eye, EyeOff, MapPin } from 'lucide-react'
+import { Save, Database, Download, History, Sliders, Upload, Users, Plus, Edit2, Trash2, Eye, EyeOff, MapPin, Calculator, FileText } from 'lucide-react'
 import { getSettings, updateSettings, getAuditLog, getDbStats, exportData, downloadBackup, importCsv } from '../api/settings'
 import { getUsers, register, updateUser } from '../api/auth'
+import { getAccounts } from '../api/accounting'
 import Toast from '../components/common/Toast'
 import Modal from '../components/common/Modal'
 import ConfirmDialog from '../components/common/ConfirmDialog'
@@ -24,6 +25,7 @@ export default function Settings() {
   const [submitting, setSubmitting] = useState(false)
   const [userForm, setUserForm] = useState({ username: '', password: '', full_name: '', email: '', role: 'manager' })
   const [editForm, setEditForm] = useState({ full_name: '', email: '', role: '', password: '' })
+  const [glAccounts, setGlAccounts] = useState([])
   const { toast, showToast, hideToast } = useToast()
   const { isLoaded: mapsLoaded } = useGoogleMaps()
 
@@ -56,6 +58,11 @@ export default function Settings() {
   }
 
   useEffect(() => { load() }, [])
+  useEffect(() => {
+    if (tab === 'accounting') {
+      getAccounts().then(res => setGlAccounts(res.data || [])).catch(() => {})
+    }
+  }, [tab])
   useEffect(() => { if (tab === 'audit') loadAudit() }, [tab])
   useEffect(() => { if (tab === 'users') loadUsers() }, [tab])
 
@@ -174,6 +181,8 @@ export default function Settings() {
 
   const tabs = [
     { id: 'general', label: 'General', icon: Sliders },
+    { id: 'accounting', label: 'Accounting', icon: Calculator },
+    { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'users', label: 'Users', icon: Users },
     { id: 'import', label: 'Import Data', icon: Upload },
     { id: 'database', label: 'Database', icon: Database },
@@ -242,13 +251,50 @@ export default function Settings() {
 
           <div className="glass-card p-6">
             <h3 className="font-semibold mb-2">Expense Categories</h3>
-            <p className="text-xs text-lvf-muted mb-4">Available categories for expense tracking</p>
-            <div className="flex flex-wrap gap-2">
-              {['Feed', 'Grower Payment', 'Flock Cost', 'Veterinary', 'Service', 'Chick Purchase', 'Transport', 'Utilities', 'Other'].map(cat => (
-                <span key={cat} className="px-3 py-1.5 rounded-full text-xs font-medium bg-lvf-accent/10 text-lvf-accent border border-lvf-accent/20">
-                  {cat}
-                </span>
-              ))}
+            <p className="text-xs text-lvf-muted mb-4">Available categories for expense tracking (click x to remove, + to add)</p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {(() => {
+                let cats = []
+                try { cats = JSON.parse(form.expense_categories || '[]') } catch { cats = ['Feed', 'Grower Payment', 'Flock Cost', 'Veterinary', 'Service', 'Chick Purchase', 'Transport', 'Utilities', 'Other'] }
+                return cats.map((cat, i) => (
+                  <span key={i} className="px-3 py-1.5 rounded-full text-xs font-medium bg-lvf-accent/10 text-lvf-accent border border-lvf-accent/20 flex items-center gap-1.5">
+                    {cat}
+                    <button type="button" onClick={() => {
+                      const updated = cats.filter((_, j) => j !== i)
+                      setForm({ ...form, expense_categories: JSON.stringify(updated) })
+                    }} className="text-lvf-danger hover:text-red-400" style={{ lineHeight: 1 }}>&times;</button>
+                  </span>
+                ))
+              })()}
+            </div>
+            <div className="flex gap-2">
+              <input
+                className="glass-input text-sm w-48"
+                placeholder="New category..."
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && e.target.value.trim()) {
+                    let cats = []
+                    try { cats = JSON.parse(form.expense_categories || '[]') } catch {}
+                    const newCat = e.target.value.trim()
+                    if (!cats.includes(newCat)) {
+                      setForm({ ...form, expense_categories: JSON.stringify([...cats, newCat]) })
+                    }
+                    e.target.value = ''
+                  }
+                }}
+              />
+              <button type="button" className="glass-button-secondary text-sm" onClick={() => {
+                const input = document.querySelector('input[placeholder="New category..."]')
+                if (input?.value.trim()) {
+                  let cats = []
+                  try { cats = JSON.parse(form.expense_categories || '[]') } catch {}
+                  const newCat = input.value.trim()
+                  if (!cats.includes(newCat)) {
+                    setForm({ ...form, expense_categories: JSON.stringify([...cats, newCat]) })
+                  }
+                  input.value = ''
+                }
+              }}>+ Add</button>
             </div>
           </div>
 
@@ -456,6 +502,252 @@ export default function Settings() {
           : `Reactivate "${deactivateTarget?.full_name}"? They will be able to log in again.`
         }
       />
+
+      {/* Accounting Settings */}
+      {tab === 'accounting' && (
+        <div className="max-w-2xl space-y-6">
+          {/* Company Information */}
+          <div className="glass-card p-6">
+            <h3 className="font-semibold mb-4">Company Information</h3>
+            <div className="space-y-4">
+              {[
+                { key: 'company_legal_name', label: 'Legal Business Name', type: 'text' },
+                { key: 'company_ein', label: 'EIN / Tax ID', type: 'text' },
+                { key: 'company_address', label: 'Business Address', type: 'text' },
+                { key: 'company_phone', label: 'Business Phone', type: 'text' },
+              ].map(field => (
+                <div key={field.key} className="flex items-center justify-between gap-4">
+                  <label className="text-sm font-medium">{field.label}</label>
+                  <input className="glass-input w-64 text-right" type={field.type} value={form[field.key] || ''}
+                    onChange={e => setForm({ ...form, [field.key]: e.target.value })} />
+                </div>
+              ))}
+              <div className="flex items-center justify-between gap-4">
+                <label className="text-sm font-medium">Business Type</label>
+                <select className="glass-input w-64" value={form.company_type || ''}
+                  onChange={e => setForm({ ...form, company_type: e.target.value })}>
+                  <option value="">-- Select --</option>
+                  <option value="LLC">LLC</option>
+                  <option value="S-Corp">S-Corp</option>
+                  <option value="C-Corp">C-Corp</option>
+                  <option value="Sole Proprietorship">Sole Proprietorship</option>
+                  <option value="Partnership">Partnership</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Numbering Sequences */}
+          <div className="glass-card p-6">
+            <h3 className="font-semibold mb-4">Numbering Sequences</h3>
+            <div className="space-y-3">
+              {[
+                { prefix: 'invoice_prefix', number: 'invoice_next_number', label: 'Invoice' },
+                { prefix: 'bill_prefix', number: 'bill_next_number', label: 'Bill' },
+                { prefix: 'check_prefix', number: 'check_next_number', label: 'Check' },
+                { prefix: 'estimate_prefix', number: 'estimate_next_number', label: 'Estimate' },
+                { prefix: 'journal_prefix', number: null, label: 'Journal Entry' },
+                { prefix: 'po_prefix', number: null, label: 'Purchase Order' },
+              ].map(seq => (
+                <div key={seq.prefix} className="flex items-center gap-3">
+                  <label className="text-sm font-medium w-32">{seq.label}</label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-lvf-muted">Prefix:</span>
+                    <input className="glass-input w-24 text-sm" value={form[seq.prefix] || ''}
+                      onChange={e => setForm({ ...form, [seq.prefix]: e.target.value })} />
+                  </div>
+                  {seq.number && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-lvf-muted">Next #:</span>
+                      <input className="glass-input w-24 text-sm" type="number" value={form[seq.number] || ''}
+                        onChange={e => setForm({ ...form, [seq.number]: e.target.value })} />
+                    </div>
+                  )}
+                  <span className="text-xs text-lvf-muted">
+                    Preview: {(form[seq.prefix] || '') + (seq.number ? (form[seq.number] || '') : '...')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Payment Terms */}
+          <div className="glass-card p-6">
+            <h3 className="font-semibold mb-2">Payment Terms</h3>
+            <p className="text-xs text-lvf-muted mb-4">Available payment terms for invoices and bills</p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {(() => {
+                let terms = []
+                try { terms = JSON.parse(form.payment_terms || '[]') } catch {}
+                return terms.map((term, i) => (
+                  <span key={i} className="px-3 py-1.5 rounded-full text-xs font-medium bg-lvf-accent/10 text-lvf-accent border border-lvf-accent/20 flex items-center gap-1.5">
+                    {term}
+                    <button type="button" onClick={() => {
+                      const updated = terms.filter((_, j) => j !== i)
+                      setForm({ ...form, payment_terms: JSON.stringify(updated) })
+                    }} className="text-lvf-danger hover:text-red-400" style={{ lineHeight: 1 }}>&times;</button>
+                  </span>
+                ))
+              })()}
+            </div>
+            <div className="flex gap-2">
+              <input className="glass-input text-sm w-48" placeholder="New term (e.g. Net 90)..."
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && e.target.value.trim()) {
+                    let terms = []
+                    try { terms = JSON.parse(form.payment_terms || '[]') } catch {}
+                    const newTerm = e.target.value.trim()
+                    if (!terms.includes(newTerm)) {
+                      setForm({ ...form, payment_terms: JSON.stringify([...terms, newTerm]) })
+                    }
+                    e.target.value = ''
+                  }
+                }} />
+              <button type="button" className="glass-button-secondary text-sm" onClick={() => {
+                const input = document.querySelector('input[placeholder="New term (e.g. Net 90)..."]')
+                if (input?.value.trim()) {
+                  let terms = []
+                  try { terms = JSON.parse(form.payment_terms || '[]') } catch {}
+                  const newTerm = input.value.trim()
+                  if (!terms.includes(newTerm)) {
+                    setForm({ ...form, payment_terms: JSON.stringify([...terms, newTerm]) })
+                  }
+                  input.value = ''
+                }
+              }}>+ Add</button>
+            </div>
+          </div>
+
+          {/* Default Accounts */}
+          <div className="glass-card p-6">
+            <h3 className="font-semibold mb-4">Default Accounts</h3>
+            <div className="space-y-4">
+              {[
+                { key: 'default_ar_account', label: 'Accounts Receivable' },
+                { key: 'default_ap_account', label: 'Accounts Payable' },
+                { key: 'default_undeposited_funds_account', label: 'Undeposited Funds' },
+                { key: 'default_revenue_account', label: 'Default Revenue' },
+                { key: 'default_expense_account', label: 'Default Expense' },
+              ].map(field => (
+                <div key={field.key} className="flex items-center justify-between gap-4">
+                  <label className="text-sm font-medium">{field.label}</label>
+                  <select className="glass-input w-72" value={form[field.key] || ''}
+                    onChange={e => setForm({ ...form, [field.key]: e.target.value })}>
+                    <option value="">-- Select Account --</option>
+                    {glAccounts.map(a => (
+                      <option key={a.id} value={a.account_number}>
+                        {a.account_number} - {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Accounting Preferences */}
+          <div className="glass-card p-6">
+            <h3 className="font-semibold mb-4">Accounting Preferences</h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="text-sm font-medium">Accounting Basis</label>
+                  <p className="text-[11px] text-lvf-muted">Display only — cannot be changed after transactions are entered</p>
+                </div>
+                <select className="glass-input w-48" value={form.accounting_basis || 'Accrual'}
+                  onChange={e => setForm({ ...form, accounting_basis: e.target.value })}>
+                  <option value="Accrual">Accrual</option>
+                  <option value="Cash">Cash</option>
+                </select>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <label className="text-sm font-medium">Close Books Date</label>
+                <input className="glass-input w-48" type="date" value={form.close_books_date || ''}
+                  onChange={e => setForm({ ...form, close_books_date: e.target.value })} />
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="text-sm font-medium">Require Invoice Approval</label>
+                  <p className="text-[11px] text-lvf-muted">Require approval before invoices can be sent</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer"
+                    checked={form.require_approval === 'true'}
+                    onChange={e => setForm({ ...form, require_approval: e.target.checked ? 'true' : 'false' })} />
+                  <div className="w-9 h-5 bg-lvf-dark/60 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-lvf-accent"></div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button onClick={handleSave} className="glass-button-primary flex items-center gap-2">
+              <Save size={14} /> Save Accounting Settings
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Documents Settings */}
+      {tab === 'documents' && (
+        <div className="max-w-2xl space-y-6">
+          <div className="glass-card p-6">
+            <h3 className="font-semibold mb-4">Invoice & Bill Defaults</h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <label className="text-sm font-medium">Default Invoice Terms</label>
+                <select className="glass-input w-48" value={form.default_invoice_terms || ''}
+                  onChange={e => setForm({ ...form, default_invoice_terms: e.target.value })}>
+                  {(() => {
+                    let terms = []
+                    try { terms = JSON.parse(form.payment_terms || '[]') } catch {}
+                    if (terms.length === 0) terms = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60']
+                    return terms.map(t => <option key={t} value={t}>{t}</option>)
+                  })()}
+                </select>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <label className="text-sm font-medium">Default Bill Terms</label>
+                <select className="glass-input w-48" value={form.default_bill_terms || ''}
+                  onChange={e => setForm({ ...form, default_bill_terms: e.target.value })}>
+                  {(() => {
+                    let terms = []
+                    try { terms = JSON.parse(form.payment_terms || '[]') } catch {}
+                    if (terms.length === 0) terms = ['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60']
+                    return terms.map(t => <option key={t} value={t}>{t}</option>)
+                  })()}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="glass-card p-6">
+            <h3 className="font-semibold mb-4">Invoice Footer & Payment Instructions</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium block mb-1">Invoice Footer Message</label>
+                <textarea className="glass-input w-full text-sm" rows={3}
+                  value={form.invoice_footer_message || ''}
+                  onChange={e => setForm({ ...form, invoice_footer_message: e.target.value })}
+                  placeholder="e.g. Thank you for your business!" style={{ resize: 'vertical' }} />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">Payment Instructions</label>
+                <textarea className="glass-input w-full text-sm" rows={3}
+                  value={form.invoice_payment_instructions || ''}
+                  onChange={e => setForm({ ...form, invoice_payment_instructions: e.target.value })}
+                  placeholder="e.g. Make checks payable to Level Valley Farms. Mail to..." style={{ resize: 'vertical' }} />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button onClick={handleSave} className="glass-button-primary flex items-center gap-2">
+              <Save size={14} /> Save Document Settings
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Import Data */}
       {tab === 'import' && (

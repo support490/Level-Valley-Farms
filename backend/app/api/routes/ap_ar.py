@@ -18,6 +18,7 @@ from app.models.accounting import (
     Bill, BillStatus, BillExpenseLine,
     BankAccount, Check,
     CustomerPayment, BillPayment,
+    Account, JournalEntry, JournalLine,
 )
 from app.models.base import generate_uuid
 
@@ -316,6 +317,50 @@ async def bank_register(bank_account_id: str, db: AsyncSession = Depends(get_db)
         return await ap_ar_service.get_bank_register(db, bank_account_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Undeposited Funds ──
+
+@router.get("/undeposited-funds")
+async def get_undeposited_funds(db: AsyncSession = Depends(get_db)):
+    """Query journal lines on Undeposited Funds (1015) to find payments not yet deposited."""
+    # Find the Undeposited Funds account
+    acct_result = await db.execute(
+        select(Account).where(Account.account_number == "1015")
+    )
+    uf_account = acct_result.scalar_one_or_none()
+    if not uf_account:
+        return {"balance": 0, "items": []}
+
+    # Get all journal lines on this account with their journal entries
+    lines_result = await db.execute(
+        select(JournalLine, JournalEntry)
+        .join(JournalEntry, JournalLine.journal_entry_id == JournalEntry.id)
+        .where(
+            JournalLine.account_id == uf_account.id,
+            JournalEntry.is_posted == True,
+        )
+        .order_by(JournalEntry.entry_date)
+    )
+
+    # Debits to UF = funds received but not deposited
+    # Credits to UF = funds deposited (clearing)
+    items = []
+    for jl, je in lines_result.all():
+        net = float(jl.debit) - float(jl.credit)
+        if net > 0:  # Only show net debit lines (undeposited)
+            items.append({
+                "id": jl.id,
+                "date": je.entry_date,
+                "description": jl.description or je.description,
+                "reference": je.reference,
+                "amount": net,
+                "journal_entry_id": je.id,
+                "entry_number": je.entry_number,
+            })
+
+    balance = float(uf_account.balance) if uf_account.balance else 0
+    return {"balance": balance, "items": items}
 
 
 # ── Deposits ──

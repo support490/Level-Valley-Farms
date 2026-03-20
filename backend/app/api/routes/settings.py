@@ -31,6 +31,49 @@ DEFAULT_SETTINGS = {
     "warehouse_address": ("", "Warehouse physical address"),
     "warehouse_latitude": ("", "Warehouse latitude"),
     "warehouse_longitude": ("", "Warehouse longitude"),
+
+    # Company Information
+    "company_legal_name": ("", "Legal business name"),
+    "company_ein": ("", "EIN / Tax ID"),
+    "company_address": ("", "Full business address"),
+    "company_phone": ("", "Business phone number"),
+    "company_type": ("", "Business type (LLC, S-Corp, Sole Prop, Partnership)"),
+
+    # Numbering Sequences
+    "invoice_prefix": ("INV-", "Invoice number prefix"),
+    "invoice_next_number": ("1001", "Next invoice number"),
+    "bill_prefix": ("BILL-", "Bill number prefix"),
+    "bill_next_number": ("1001", "Next bill number"),
+    "check_prefix": ("CHK-", "Check number prefix"),
+    "check_next_number": ("1001", "Next check number"),
+    "journal_prefix": ("JE-", "Journal entry prefix"),
+    "po_prefix": ("PO-", "Purchase order prefix"),
+    "estimate_prefix": ("EST-", "Estimate number prefix"),
+    "estimate_next_number": ("1001", "Next estimate number"),
+
+    # Payment Terms
+    "payment_terms": ('["Due on Receipt","Net 15","Net 30","Net 45","Net 60"]', "Available payment terms (JSON array)"),
+
+    # Default Accounts
+    "default_ar_account": ("1020", "Default Accounts Receivable account number"),
+    "default_ap_account": ("2010", "Default Accounts Payable account number"),
+    "default_undeposited_funds_account": ("1015", "Default Undeposited Funds account number"),
+    "default_revenue_account": ("4010", "Default revenue account number"),
+    "default_expense_account": ("", "Default expense GL account number"),
+
+    # Accounting Preferences
+    "accounting_basis": ("Accrual", "Accounting basis (Accrual or Cash)"),
+    "close_books_date": ("", "Date through which books are closed"),
+    "require_approval": ("false", "Require invoice approval before sending"),
+
+    # Expense Categories
+    "expense_categories": ('["Feed","Grower Payment","Flock Cost","Veterinary","Service","Chick Purchase","Transport","Utilities","Other"]', "Expense categories (JSON array)"),
+
+    # Document Settings
+    "invoice_footer_message": ("", "Custom text at bottom of invoices"),
+    "invoice_payment_instructions": ("", "Payment instructions text for invoices"),
+    "default_invoice_terms": ("Net 30", "Default payment terms for new invoices"),
+    "default_bill_terms": ("Net 30", "Default payment terms for new bills"),
 }
 
 

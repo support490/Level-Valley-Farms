@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { createInvoice, getAccounts, getBuyers } from '../../api/accounting'
+import { createInvoice, getInvoices, getAccounts, getBuyers } from '../../api/accounting'
+import { getSettings, updateSettings } from '../../api/settings'
 import useToast from '../../hooks/useToast'
 import Toast from '../common/Toast'
 import AddressAutocomplete from '../common/AddressAutocomplete'
 
-const termsOptions = [
+const defaultTermsOptions = [
   { value: 'Due on Receipt', days: 0 },
   { value: 'Net 15', days: 15 },
   { value: 'Net 30', days: 30 },
@@ -21,6 +22,13 @@ function addDays(dateStr, days) {
   return d.toISOString().split('T')[0]
 }
 
+function termsToDays(termsValue) {
+  const match = termsValue.match(/Net\s+(\d+)/)
+  if (match) return parseInt(match[1], 10)
+  if (termsValue === 'Due on Receipt') return 0
+  return 30
+}
+
 export default function CreateInvoices({ onSaved }) {
   const today = new Date().toISOString().split('T')[0]
   const { toast, showToast, hideToast } = useToast()
@@ -28,9 +36,19 @@ export default function CreateInvoices({ onSaved }) {
   const [buyers, setBuyers] = useState([])
   const [accounts, setAccounts] = useState([])
 
+  // Settings-driven state
+  const [termsOptions, setTermsOptions] = useState(defaultTermsOptions)
+  const [invoicePrefix, setInvoicePrefix] = useState('INV-')
+  const [nextNumber, setNextNumber] = useState('')
+  const [defaultTerms, setDefaultTerms] = useState('Net 30')
+
+  // Invoice navigation
+  const [invoices, setInvoices] = useState([])
+  const [currentIndex, setCurrentIndex] = useState(-1) // -1 = new invoice
+
   const [form, setForm] = useState({
     buyer: '', buyer_id: '', class_name: '', template: '',
-    invoice_date: today, invoice_number: 'INV-' + Date.now(),
+    invoice_date: today, invoice_number: '',
     bill_to_address: '', ship_to_address: '',
     po_number: '', terms: 'Net 30', due_date: addDays(today, 30),
     ship_date: '', ship_via: '', customer_message: '', description: '', notes: '',
@@ -42,17 +60,48 @@ export default function CreateInvoices({ onSaved }) {
 
   const loadData = async () => {
     try {
-      const [acctRes, buyerRes] = await Promise.all([getAccounts(), getBuyers()])
+      const [acctRes, buyerRes, settingsRes, invoiceRes] = await Promise.all([
+        getAccounts(), getBuyers(), getSettings(), getInvoices(),
+      ])
       setAccounts(acctRes.data || [])
       setBuyers(buyerRes.data || [])
+      setInvoices(invoiceRes.data || [])
+
+      const s = settingsRes.data || {}
+
+      // Payment terms from settings
+      try {
+        const terms = JSON.parse(s.payment_terms?.value || '[]')
+        if (terms.length > 0) {
+          setTermsOptions(terms.map(t => ({ value: t, days: termsToDays(t) })))
+        }
+      } catch {}
+
+      // Numbering
+      const prefix = s.invoice_prefix?.value || 'INV-'
+      const num = s.invoice_next_number?.value || ''
+      setInvoicePrefix(prefix)
+      setNextNumber(num)
+
+      // Default terms
+      const dt = s.default_invoice_terms?.value || 'Net 30'
+      setDefaultTerms(dt)
+
+      // Set initial invoice number and terms
+      setForm(prev => ({
+        ...prev,
+        invoice_number: num ? `${prefix}${num}` : `INV-${Date.now()}`,
+        terms: dt,
+        due_date: addDays(prev.invoice_date, termsToDays(dt)),
+      }))
     } catch {
       try { const acctRes = await getAccounts(); setAccounts(acctRes.data || []) } catch {}
     }
   }
 
   const updateTerms = (newDate, newTerms) => {
-    const term = termsOptions.find(t => t.value === newTerms)
-    const due = term ? addDays(newDate, term.days) : newDate
+    const days = termsToDays(newTerms)
+    const due = addDays(newDate, days)
     setForm(prev => ({ ...prev, invoice_date: newDate, terms: newTerms, due_date: due }))
   }
 
@@ -77,14 +126,16 @@ export default function CreateInvoices({ onSaved }) {
   const total = subtotal + tax
 
   const clearForm = () => {
+    const num = nextNumber ? parseInt(nextNumber, 10) + 1 : ''
     setForm({
       buyer: '', buyer_id: '', class_name: '', template: '',
-      invoice_date: today, invoice_number: 'INV-' + Date.now(),
+      invoice_date: today, invoice_number: num ? `${invoicePrefix}${num}` : `INV-${Date.now()}`,
       bill_to_address: '', ship_to_address: '',
-      po_number: '', terms: 'Net 30', due_date: addDays(today, 30),
+      po_number: '', terms: defaultTerms, due_date: addDays(today, termsToDays(defaultTerms)),
       ship_date: '', ship_via: '', customer_message: '', description: '', notes: '',
     })
     setLineItems([{ ...emptyLine }])
+    setCurrentIndex(-1)
   }
 
   const handleSave = async (andNew = false) => {
@@ -108,6 +159,14 @@ export default function CreateInvoices({ onSaved }) {
       }
       await createInvoice(payload)
       showToast('Invoice created successfully')
+
+      // Increment next number in settings
+      if (nextNumber) {
+        const newNum = String(parseInt(nextNumber, 10) + 1)
+        setNextNumber(newNum)
+        try { await updateSettings({ invoice_next_number: newNum }) } catch {}
+      }
+
       if (onSaved) onSaved()
       if (andNew) clearForm()
     } catch (err) {
@@ -125,26 +184,80 @@ export default function CreateInvoices({ onSaved }) {
     }))
   }
 
+  // Prev/Next navigation
+  const loadInvoiceAtIndex = (idx) => {
+    if (idx < 0 || idx >= invoices.length) return
+    setCurrentIndex(idx)
+    const inv = invoices[idx]
+    setForm({
+      buyer: inv.buyer || '', buyer_id: inv.buyer_id || '', class_name: '', template: '',
+      invoice_date: inv.invoice_date || today, invoice_number: inv.invoice_number || '',
+      bill_to_address: inv.bill_to_address || '', ship_to_address: inv.ship_to_address || '',
+      po_number: inv.po_number || '', terms: inv.terms || 'Net 30', due_date: inv.due_date || '',
+      ship_date: inv.ship_date || '', ship_via: inv.ship_via || '',
+      customer_message: inv.customer_message || '', description: inv.description || '', notes: inv.notes || '',
+    })
+    setLineItems(inv.line_items?.length > 0
+      ? inv.line_items.map(li => ({
+          item_description: li.item_description || '', quantity: li.quantity || '',
+          unit_of_measure: li.unit_of_measure || '', rate: li.rate || '',
+          amount: li.amount || 0, account_id: li.account_id || '', flock_id: li.flock_id || '',
+        }))
+      : [{ ...emptyLine }]
+    )
+  }
+
+  const handlePrev = () => {
+    if (invoices.length === 0) return
+    if (currentIndex <= 0) {
+      loadInvoiceAtIndex(invoices.length - 1)
+    } else {
+      loadInvoiceAtIndex(currentIndex - 1)
+    }
+  }
+
+  const handleNext = () => {
+    if (invoices.length === 0) return
+    if (currentIndex >= invoices.length - 1 || currentIndex === -1) {
+      loadInvoiceAtIndex(0)
+    } else {
+      loadInvoiceAtIndex(currentIndex + 1)
+    }
+  }
+
+  const handleEmail = () => {
+    showToast('Email not configured — set up SMTP in Settings', 'warning')
+  }
+
   return (
     <div>
       {toast && <Toast {...toast} onClose={hideToast} />}
 
-      {/* ── Header strip: Prev/Next | Print | Email ── */}
+      {/* Header strip: Prev/Next | Print | Email */}
       <div className="bg-lvf-dark/30 border-b border-lvf-border" style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '3px 8px',
       }}>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button className="glass-button-secondary text-sm" style={{ padding: '2px 8px' }}>&#9664; Prev</button>
-          <button className="glass-button-secondary text-sm" style={{ padding: '2px 8px' }}>Next &#9654;</button>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <button className="glass-button-secondary text-sm" style={{ padding: '2px 8px' }} onClick={handlePrev}
+            title={invoices.length > 0 ? `${invoices.length} invoices` : 'No saved invoices'}>&#9664; Prev</button>
+          <button className="glass-button-secondary text-sm" style={{ padding: '2px 8px' }} onClick={handleNext}>Next &#9654;</button>
+          {currentIndex >= 0 && (
+            <span style={{ fontSize: '8pt', color: '#999', marginLeft: 4 }}>
+              {currentIndex + 1} of {invoices.length}
+            </span>
+          )}
+          {currentIndex >= 0 && (
+            <button className="glass-button-secondary text-sm" style={{ padding: '2px 8px', marginLeft: 4 }} onClick={clearForm}>+ New</button>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
           <button className="glass-button-secondary text-sm" onClick={() => window.print()} style={{ padding: '2px 8px' }}>Print</button>
-          <button className="glass-button-secondary text-sm" style={{ padding: '2px 8px' }}>Email</button>
+          <button className="glass-button-secondary text-sm" style={{ padding: '2px 8px' }} onClick={handleEmail}>Email</button>
         </div>
       </div>
 
-      {/* ── Header Form ── */}
+      {/* Header Form */}
       <div className="glass-card p-4 m-2">
         {/* Row 1: Customer:Job | Template */}
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10, marginBottom: 8 }}>
@@ -181,7 +294,7 @@ export default function CreateInvoices({ onSaved }) {
           </div>
         </div>
 
-        {/* Row 3: Bill To | Ship To — with Google address autocomplete */}
+        {/* Row 3: Bill To | Ship To */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
           <div>
             <label style={{ fontSize: '8pt', fontWeight: 600, display: 'block', marginBottom: 1 }}>Bill To</label>
@@ -235,7 +348,7 @@ export default function CreateInvoices({ onSaved }) {
         </div>
       </div>
 
-      {/* ── Line Items Table ── */}
+      {/* Line Items Table */}
       <div style={{ margin: '0 8px' }}>
         <table className="glass-table w-full">
           <thead>
@@ -297,7 +410,7 @@ export default function CreateInvoices({ onSaved }) {
         </div>
       </div>
 
-      {/* ── Footer: Customer Message + Totals ── */}
+      {/* Footer: Customer Message + Totals */}
       <div className="glass-card p-4 m-2" style={{ marginTop: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div>
           <label style={{ fontSize: '8pt', fontWeight: 600, display: 'block', marginBottom: 1 }}>Customer Message</label>
@@ -328,7 +441,7 @@ export default function CreateInvoices({ onSaved }) {
         </div>
       </div>
 
-      {/* ── Action Buttons ── */}
+      {/* Action Buttons */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, margin: '6px 8px 0' }}>
         <button type="button" className="glass-button-secondary text-sm" onClick={clearForm}>Revert</button>
         <button type="button" className="glass-button-secondary text-sm" onClick={() => window.print()}>Print</button>

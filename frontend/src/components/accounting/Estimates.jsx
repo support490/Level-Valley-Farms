@@ -1,15 +1,23 @@
 import { useState, useEffect } from 'react'
 import { getEstimates, createEstimate, updateEstimateStatus, convertEstimateToInvoice, getBuyers, getAccounts } from '../../api/accounting'
+import { getSettings, updateSettings } from '../../api/settings'
 import useToast from '../../hooks/useToast'
 import Toast from '../common/Toast'
 
-const termsOptions = [
+const defaultTermsOptions = [
   { value: 'Due on Receipt', days: 0 },
   { value: 'Net 15', days: 15 },
   { value: 'Net 30', days: 30 },
   { value: 'Net 45', days: 45 },
   { value: 'Net 60', days: 60 },
 ]
+
+function termsToDays(termsValue) {
+  const match = termsValue.match(/Net\s+(\d+)/)
+  if (match) return parseInt(match[1], 10)
+  if (termsValue === 'Due on Receipt') return 0
+  return 30
+}
 
 const statusConfig = {
   draft:     { label: 'Draft',     bg: 'bg-gray-500/20',   text: 'text-gray-300',   border: 'border-gray-500/40' },
@@ -54,6 +62,9 @@ export default function Estimates() {
   const [submitting, setSubmitting] = useState(false)
   const [buyers, setBuyers] = useState([])
   const [accounts, setAccounts] = useState([])
+  const [termsOptions, setTermsOptions] = useState(defaultTermsOptions)
+  const [estimatePrefix, setEstimatePrefix] = useState('EST-')
+  const [nextNumber, setNextNumber] = useState('')
 
   const [form, setForm] = useState({
     buyer: '', buyer_id: '',
@@ -79,9 +90,23 @@ export default function Estimates() {
 
   const loadFormData = async () => {
     try {
-      const [acctRes, buyerRes] = await Promise.all([getAccounts(), getBuyers()])
+      const [acctRes, buyerRes, settingsRes] = await Promise.all([getAccounts(), getBuyers(), getSettings()])
       setAccounts(acctRes.data || [])
       setBuyers(buyerRes.data || [])
+
+      const s = settingsRes.data || {}
+      try {
+        const terms = JSON.parse(s.payment_terms?.value || '[]')
+        if (terms.length > 0) setTermsOptions(terms.map(t => ({ value: t, days: termsToDays(t) })))
+      } catch {}
+
+      const prefix = s.estimate_prefix?.value || 'EST-'
+      const num = s.estimate_next_number?.value || ''
+      setEstimatePrefix(prefix)
+      setNextNumber(num)
+      if (num) {
+        setForm(prev => ({ ...prev, estimate_number: `${prefix}${num}` }))
+      }
     } catch {
       try { const acctRes = await getAccounts(); setAccounts(acctRes.data || []) } catch {}
     }
@@ -126,9 +151,10 @@ export default function Estimates() {
   const total = subtotal
 
   const clearForm = () => {
+    const num = nextNumber ? parseInt(nextNumber, 10) + 1 : ''
     setForm({
       buyer: '', buyer_id: '',
-      estimate_date: today, estimate_number: 'EST-' + Date.now(),
+      estimate_date: today, estimate_number: num ? `${estimatePrefix}${num}` : `EST-${Date.now()}`,
       expiration_date: addDays(today, 30),
       po_number: '', terms: 'Net 30',
       customer_message: '', notes: '',
@@ -155,6 +181,14 @@ export default function Estimates() {
       }
       await createEstimate(payload)
       showToast('Estimate created successfully')
+
+      // Increment next number in settings
+      if (nextNumber) {
+        const newNum = String(parseInt(nextNumber, 10) + 1)
+        setNextNumber(newNum)
+        try { await updateSettings({ estimate_next_number: newNum }) } catch {}
+      }
+
       if (andNew) { clearForm() } else { goBackToList() }
     } catch (err) {
       showToast(err.response?.data?.detail || 'Error creating estimate', 'error')
@@ -211,7 +245,8 @@ export default function Estimates() {
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
             <button className="glass-button-secondary text-sm" onClick={() => window.print()} style={{ padding: '2px 8px' }}>Print</button>
-            <button className="glass-button-secondary text-sm" style={{ padding: '2px 8px' }}>Email</button>
+            <button className="glass-button-secondary text-sm" style={{ padding: '2px 8px' }}
+              onClick={() => showToast('Email not configured — set up SMTP in Settings', 'warning')}>Email</button>
           </div>
         </div>
 

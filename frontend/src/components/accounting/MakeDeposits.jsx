@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getBankAccounts, getAccounts, makeDeposit } from '../../api/accounting'
+import { getBankAccounts, getAccounts, makeDeposit, getUndepositedFunds } from '../../api/accounting'
 import useToast from '../../hooks/useToast'
 import Toast from '../common/Toast'
 
@@ -23,7 +23,22 @@ export default function MakeDeposits({ onSaved }) {
   const [cashBackAmount, setCashBackAmount] = useState('')
   const [depositMemo, setDepositMemo] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [undepositedFunds, setUndepositedFunds] = useState({ balance: 0, items: [] })
+  const [loadingUndeposited, setLoadingUndeposited] = useState(true)
+  const [selectedUndeposited, setSelectedUndeposited] = useState({})
   const { toast, showToast, hideToast } = useToast()
+
+  const loadUndepositedFunds = async () => {
+    setLoadingUndeposited(true)
+    try {
+      const res = await getUndepositedFunds()
+      setUndepositedFunds(res.data || { balance: 0, items: [] })
+    } catch {
+      setUndepositedFunds({ balance: 0, items: [] })
+    } finally {
+      setLoadingUndeposited(false)
+    }
+  }
 
   useEffect(() => {
     const load = async () => {
@@ -46,7 +61,22 @@ export default function MakeDeposits({ onSaved }) {
       }
     }
     load()
+    loadUndepositedFunds()
   }, [])
+
+  const toggleUndepositedItem = (id) => {
+    setSelectedUndeposited(prev => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  const selectAllUndeposited = (checked) => {
+    const next = {}
+    undepositedFunds.items.forEach(item => { next[item.id] = checked })
+    setSelectedUndeposited(next)
+  }
+
+  const selectedUndepositedTotal = undepositedFunds.items
+    .filter(item => selectedUndeposited[item.id])
+    .reduce((sum, item) => sum + item.amount, 0)
 
   const selectedBank = bankAccounts.find(b => b.id === depositTo)
 
@@ -266,26 +296,64 @@ export default function MakeDeposits({ onSaved }) {
             padding: '12px 16px',
           }}
         >
-          <h4
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              color: '#336699',
-              margin: '0 0 6px 0',
-            }}
-          >
-            Select Payments to Deposit
-          </h4>
-          <div
-            style={{
-              fontSize: 12,
-              color: '#999',
-              fontStyle: 'italic',
-              padding: '8px 0',
-            }}
-          >
-            No undeposited funds available
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <h4
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#336699',
+                margin: 0,
+              }}
+            >
+              Select Payments to Deposit
+            </h4>
+            {undepositedFunds.items.length > 0 && (
+              <span style={{ fontSize: 11, color: '#60a5fa', fontWeight: 600 }}>
+                Selected: ${selectedUndepositedTotal.toFixed(2)}
+              </span>
+            )}
           </div>
+          {loadingUndeposited ? (
+            <div style={{ fontSize: 12, color: '#999', fontStyle: 'italic', padding: '8px 0' }}>
+              Loading undeposited funds...
+            </div>
+          ) : undepositedFunds.items.length === 0 ? (
+            <div style={{ fontSize: 12, color: '#999', fontStyle: 'italic', padding: '8px 0' }}>
+              No undeposited funds available
+            </div>
+          ) : (
+            <div>
+              <table className="glass-table w-full" style={{ fontSize: 11 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: '5%', textAlign: 'center' }}>
+                      <input type="checkbox"
+                        checked={undepositedFunds.items.every(item => selectedUndeposited[item.id])}
+                        onChange={e => selectAllUndeposited(e.target.checked)} />
+                    </th>
+                    <th style={{ width: '15%' }}>Date</th>
+                    <th style={{ width: '20%' }}>Reference</th>
+                    <th style={{ width: '40%' }}>Description</th>
+                    <th style={{ width: '20%', textAlign: 'right' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {undepositedFunds.items.map(item => (
+                    <tr key={item.id} style={{ cursor: 'pointer' }} onClick={() => toggleUndepositedItem(item.id)}>
+                      <td style={{ textAlign: 'center' }}>
+                        <input type="checkbox" checked={!!selectedUndeposited[item.id]}
+                          onChange={() => toggleUndepositedItem(item.id)} />
+                      </td>
+                      <td>{item.date}</td>
+                      <td>{item.entry_number || item.reference || '-'}</td>
+                      <td>{item.description}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>${item.amount.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 

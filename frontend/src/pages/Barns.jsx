@@ -14,7 +14,6 @@ import useToast from '../hooks/useToast'
 
 const emptyForm = { name: '', barn_type: 'pullet', bird_capacity: '', grower_id: '', notes: '', latitude: '', longitude: '' }
 const pinMapStyle = { width: '100%', height: '300px', borderRadius: '8px' }
-const BARNS_BUILD_CHECK = 'BARNS_V2_2026_0319'
 const defaultPinCenter = { lat: 40.75, lng: -77.40 }
 
 export default function Barns() {
