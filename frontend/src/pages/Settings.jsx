@@ -10,6 +10,8 @@ import useToast from '../hooks/useToast'
 import AddressAutocomplete from '../components/common/AddressAutocomplete'
 import { useGoogleMaps } from '../components/common/GoogleMapsProvider'
 import { GoogleMap, Marker } from '@react-google-maps/api'
+import LogoUpload from '../components/accounting/LogoUpload'
+import SmtpSettings from '../components/accounting/SmtpSettings'
 
 export default function Settings() {
   const [tab, setTab] = useState('general')
@@ -680,6 +682,114 @@ export default function Settings() {
             </div>
           </div>
 
+          {/* Duplicate Warnings */}
+          <div className="glass-card p-6">
+            <h3 className="font-semibold mb-4">Duplicate Warnings</h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="text-sm font-medium">Warn on duplicate invoice numbers</label>
+                  <p className="text-[11px] text-lvf-muted">Alert when an invoice number has already been used</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer"
+                    checked={form.warn_duplicate_invoices !== 'false'}
+                    onChange={e => setForm({ ...form, warn_duplicate_invoices: e.target.checked ? 'true' : 'false' })} />
+                  <div className="w-9 h-5 bg-lvf-dark/60 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-lvf-accent"></div>
+                </label>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="text-sm font-medium">Warn on duplicate bill numbers</label>
+                  <p className="text-[11px] text-lvf-muted">Alert when a bill number has already been used</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer"
+                    checked={form.warn_duplicate_bills !== 'false'}
+                    onChange={e => setForm({ ...form, warn_duplicate_bills: e.target.checked ? 'true' : 'false' })} />
+                  <div className="w-9 h-5 bg-lvf-dark/60 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-lvf-accent"></div>
+                </label>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="text-sm font-medium">Warn on duplicate check numbers</label>
+                  <p className="text-[11px] text-lvf-muted">Alert when a check number has already been used</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer"
+                    checked={form.warn_duplicate_checks !== 'false'}
+                    onChange={e => setForm({ ...form, warn_duplicate_checks: e.target.checked ? 'true' : 'false' })} />
+                  <div className="w-9 h-5 bg-lvf-dark/60 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-lvf-accent"></div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Auto-Apply */}
+          <div className="glass-card p-6">
+            <h3 className="font-semibold mb-4">Auto-Apply</h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="text-sm font-medium">Auto-apply credits when receiving payments</label>
+                  <p className="text-[11px] text-lvf-muted">Automatically apply available credit memos to incoming payments</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer"
+                    checked={form.auto_apply_credits === 'true'}
+                    onChange={e => setForm({ ...form, auto_apply_credits: e.target.checked ? 'true' : 'false' })} />
+                  <div className="w-9 h-5 bg-lvf-dark/60 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-lvf-accent"></div>
+                </label>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="text-sm font-medium">Auto-apply deposits when creating invoices</label>
+                  <p className="text-[11px] text-lvf-muted">Automatically apply customer deposits to new invoices</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer"
+                    checked={form.auto_apply_deposits === 'true'}
+                    onChange={e => setForm({ ...form, auto_apply_deposits: e.target.checked ? 'true' : 'false' })} />
+                  <div className="w-9 h-5 bg-lvf-dark/60 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-lvf-accent"></div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Finance Charge Defaults */}
+          <div className="glass-card p-6">
+            <h3 className="font-semibold mb-4">Finance Charge Defaults</h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="text-sm font-medium">Annual Interest Rate (%)</label>
+                  <p className="text-[11px] text-lvf-muted">Rate applied to overdue balances</p>
+                </div>
+                <input className="glass-input w-48 text-right" type="number" step="0.5" min="0" max="100"
+                  value={form.finance_charge_rate || '18'}
+                  onChange={e => setForm({ ...form, finance_charge_rate: e.target.value })} />
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="text-sm font-medium">Grace Period (days)</label>
+                  <p className="text-[11px] text-lvf-muted">Days after due date before charges accrue</p>
+                </div>
+                <input className="glass-input w-48 text-right" type="number" step="1" min="0"
+                  value={form.finance_charge_grace_days || '30'}
+                  onChange={e => setForm({ ...form, finance_charge_grace_days: e.target.value })} />
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <label className="text-sm font-medium">Minimum Charge ($)</label>
+                  <p className="text-[11px] text-lvf-muted">Minimum finance charge per assessment</p>
+                </div>
+                <input className="glass-input w-48 text-right" type="number" step="0.01" min="0"
+                  value={form.finance_charge_minimum || '1.00'}
+                  onChange={e => setForm({ ...form, finance_charge_minimum: e.target.value })} />
+              </div>
+            </div>
+          </div>
+
           <div className="flex justify-end">
             <button onClick={handleSave} className="glass-button-primary flex items-center gap-2">
               <Save size={14} /> Save Accounting Settings
@@ -745,6 +855,14 @@ export default function Settings() {
             <button onClick={handleSave} className="glass-button-primary flex items-center gap-2">
               <Save size={14} /> Save Document Settings
             </button>
+          </div>
+
+          <div className="glass-card p-6">
+            <LogoUpload />
+          </div>
+
+          <div className="glass-card p-6">
+            <SmtpSettings />
           </div>
         </div>
       )}

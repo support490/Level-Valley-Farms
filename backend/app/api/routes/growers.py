@@ -1,12 +1,26 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from sqlalchemy import select
+from typing import List, Optional
+from pydantic import BaseModel
+from decimal import Decimal
 
 from app.db.database import get_db
 from app.schemas.grower import GrowerCreate, GrowerUpdate, GrowerResponse, GrowerListResponse
 from app.services import grower_service
+from app.models.accounting import GrowerPaymentFormula
+from app.models.base import generate_uuid
 
 router = APIRouter(prefix="/growers", tags=["growers"])
+
+
+class PaymentFormulaCreate(BaseModel):
+    base_rate_per_bird: float = 0
+    mortality_deduction_rate: float = 0
+    production_bonus_rate: float = 0
+    production_target_pct: float = 80
+    feed_conversion_bonus: float = 0
+    notes: Optional[str] = None
 
 
 @router.get("", response_model=List[GrowerListResponse])
@@ -44,3 +58,76 @@ async def delete_grower(grower_id: str, db: AsyncSession = Depends(get_db)):
     if not success:
         raise HTTPException(status_code=404, detail="Grower not found")
     return {"message": "Grower deactivated"}
+
+
+# ── Grower Payment Formula CRUD ──
+
+@router.get("/{grower_id}/payment-formula")
+async def get_payment_formula(grower_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(GrowerPaymentFormula).where(
+            GrowerPaymentFormula.grower_id == grower_id,
+            GrowerPaymentFormula.is_active == True,
+        )
+    )
+    formula = result.scalar_one_or_none()
+    if not formula:
+        return None
+    return {
+        "id": formula.id,
+        "grower_id": formula.grower_id,
+        "base_rate_per_bird": float(formula.base_rate_per_bird),
+        "mortality_deduction_rate": float(formula.mortality_deduction_rate),
+        "production_bonus_rate": float(formula.production_bonus_rate),
+        "production_target_pct": float(formula.production_target_pct),
+        "feed_conversion_bonus": float(formula.feed_conversion_bonus),
+        "notes": formula.notes,
+        "is_active": formula.is_active,
+    }
+
+
+@router.put("/{grower_id}/payment-formula")
+async def upsert_payment_formula(
+    grower_id: str, data: PaymentFormulaCreate, db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(GrowerPaymentFormula).where(
+            GrowerPaymentFormula.grower_id == grower_id,
+            GrowerPaymentFormula.is_active == True,
+        )
+    )
+    formula = result.scalar_one_or_none()
+
+    if formula:
+        formula.base_rate_per_bird = Decimal(str(data.base_rate_per_bird))
+        formula.mortality_deduction_rate = Decimal(str(data.mortality_deduction_rate))
+        formula.production_bonus_rate = Decimal(str(data.production_bonus_rate))
+        formula.production_target_pct = Decimal(str(data.production_target_pct))
+        formula.feed_conversion_bonus = Decimal(str(data.feed_conversion_bonus))
+        formula.notes = data.notes
+    else:
+        formula = GrowerPaymentFormula(
+            id=generate_uuid(),
+            grower_id=grower_id,
+            base_rate_per_bird=Decimal(str(data.base_rate_per_bird)),
+            mortality_deduction_rate=Decimal(str(data.mortality_deduction_rate)),
+            production_bonus_rate=Decimal(str(data.production_bonus_rate)),
+            production_target_pct=Decimal(str(data.production_target_pct)),
+            feed_conversion_bonus=Decimal(str(data.feed_conversion_bonus)),
+            notes=data.notes,
+            is_active=True,
+        )
+        db.add(formula)
+
+    await db.commit()
+    await db.refresh(formula)
+    return {
+        "id": formula.id,
+        "grower_id": formula.grower_id,
+        "base_rate_per_bird": float(formula.base_rate_per_bird),
+        "mortality_deduction_rate": float(formula.mortality_deduction_rate),
+        "production_bonus_rate": float(formula.production_bonus_rate),
+        "production_target_pct": float(formula.production_target_pct),
+        "feed_conversion_bonus": float(formula.feed_conversion_bonus),
+        "notes": formula.notes,
+    }

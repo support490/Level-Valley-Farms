@@ -13,3 +13,13 @@ export const importCsv = (file, entityType) => {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
+
+// Company Logo
+export const uploadLogo = (file) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return api.post('/settings/logo', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+export const getLogoUrl = () => '/api/settings/logo'

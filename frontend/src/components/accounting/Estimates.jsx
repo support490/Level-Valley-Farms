@@ -3,6 +3,8 @@ import { getEstimates, createEstimate, updateEstimateStatus, convertEstimateToIn
 import { getSettings, updateSettings } from '../../api/settings'
 import useToast from '../../hooks/useToast'
 import Toast from '../common/Toast'
+import PrintView from './PrintView'
+import CopyTransactionButton from './CopyTransactionButton'
 
 const defaultTermsOptions = [
   { value: 'Due on Receipt', days: 0 },
@@ -65,6 +67,7 @@ export default function Estimates() {
   const [termsOptions, setTermsOptions] = useState(defaultTermsOptions)
   const [estimatePrefix, setEstimatePrefix] = useState('EST-')
   const [nextNumber, setNextNumber] = useState('')
+  const [printEstimateId, setPrintEstimateId] = useState(null)
 
   const [form, setForm] = useState({
     buyer: '', buyer_id: '',
@@ -246,7 +249,7 @@ export default function Estimates() {
           <div style={{ display: 'flex', gap: 4 }}>
             <button className="glass-button-secondary text-sm" onClick={() => window.print()} style={{ padding: '2px 8px' }}>Print</button>
             <button className="glass-button-secondary text-sm" style={{ padding: '2px 8px' }}
-              onClick={() => showToast('Email not configured — set up SMTP in Settings', 'warning')}>Email</button>
+              onClick={() => showToast('Save estimate first, then use Print from list view', 'warning')}>Email</button>
           </div>
         </div>
 
@@ -481,6 +484,20 @@ export default function Estimates() {
                             Convert to Invoice
                           </button>
                         )}
+
+                        <button
+                          className="glass-button-secondary text-sm"
+                          style={{ padding: '2px 8px', fontSize: '8pt' }}
+                          onClick={() => setPrintEstimateId(est.id)}
+                        >
+                          Print
+                        </button>
+
+                        <CopyTransactionButton
+                          transactionType="estimate"
+                          transactionId={est.id}
+                          onCopied={() => loadEstimates()}
+                        />
                       </div>
                     </td>
                   </tr>
@@ -488,6 +505,10 @@ export default function Estimates() {
               })}
             </tbody>
           </table>
+        )}
+
+        {printEstimateId && (
+          <PrintView type="estimate" id={printEstimateId} onClose={() => setPrintEstimateId(null)} />
         )}
       </div>
     </div>

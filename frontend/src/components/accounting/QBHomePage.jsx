@@ -1,3 +1,5 @@
+import TransactionHistory from './TransactionHistory'
+
 export default function QBHomePage({ onNavigate }) {
   return (
     <div className="p-3">
@@ -66,8 +68,15 @@ export default function QBHomePage({ onNavigate }) {
             <Node icon="📑" label="Items & Services" color="#555555" onClick={() => onNavigate('items-services')} />
             <Node icon="📓" label="Journal Entries" color="#555555" onClick={() => onNavigate('journal')} />
             <Node icon="⚡" label="Quick Expense" color="#555555" onClick={() => onNavigate('quick')} />
+            <Node icon="🚜" label="Fixed Assets" color="#555555" onClick={() => onNavigate('fixed-assets')} />
           </FlowRow>
         </div>
+      </div>
+
+      {/* Recent Transactions */}
+      <div style={{ marginBottom: 16 }}>
+        <div className="glass-card rounded-xl mb-2 px-4 py-2 border-l-4 border-l-purple-500/60 font-semibold text-sm">RECENT ACTIVITY</div>
+        <TransactionHistory onNavigate={onNavigate} />
       </div>
     </div>
   )

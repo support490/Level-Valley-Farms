@@ -74,6 +74,15 @@ DEFAULT_SETTINGS = {
     "invoice_payment_instructions": ("", "Payment instructions text for invoices"),
     "default_invoice_terms": ("Net 30", "Default payment terms for new invoices"),
     "default_bill_terms": ("Net 30", "Default payment terms for new bills"),
+
+    # SMTP Email Settings
+    "smtp_host": ("", "SMTP server hostname"),
+    "smtp_port": ("587", "SMTP server port"),
+    "smtp_username": ("", "SMTP username"),
+    "smtp_password": ("", "SMTP password"),
+    "smtp_from_email": ("", "From email address"),
+    "smtp_from_name": ("Level Valley Farms", "From name"),
+    "smtp_use_tls": ("true", "Use TLS for SMTP"),
 }
 
 
@@ -105,6 +114,49 @@ async def update_settings(data: dict, db: AsyncSession = Depends(get_db)):
     await _log_action(db, "update", "settings", None, f"Updated settings: {', '.join(data.keys())}")
     await db.commit()
     return {"message": "Settings updated"}
+
+
+# ── Company Logo ──
+
+@router.post("/logo")
+async def upload_logo(file: UploadFile = File(...)):
+    """Upload company logo for invoices and forms."""
+    import os
+
+    if not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    logo_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "static")
+    os.makedirs(logo_dir, exist_ok=True)
+
+    # Remove any existing logo files
+    for old_ext in ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp']:
+        old_path = os.path.join(logo_dir, f"company_logo.{old_ext}")
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    ext = file.filename.split('.')[-1] if '.' in file.filename else 'png'
+    logo_path = os.path.join(logo_dir, f"company_logo.{ext}")
+
+    content = await file.read()
+    with open(logo_path, 'wb') as f:
+        f.write(content)
+
+    return {"message": "Logo uploaded", "path": f"/static/company_logo.{ext}"}
+
+
+@router.get("/logo")
+async def get_logo():
+    """Serve the uploaded company logo."""
+    import os
+    from fastapi.responses import FileResponse
+
+    logo_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "static")
+    for ext in ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp']:
+        path = os.path.join(logo_dir, f"company_logo.{ext}")
+        if os.path.exists(path):
+            return FileResponse(path, media_type=f"image/{ext}")
+    raise HTTPException(status_code=404, detail="No logo uploaded")
 
 
 # ── Audit Log ──

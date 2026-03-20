@@ -1,13 +1,21 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 from decimal import Decimal
 from typing import Optional
+from datetime import date, timedelta
 
-from app.models.accounting import Account, AccountType, JournalEntry, JournalLine, ExpenseCategory
+from app.models.accounting import (
+    Account, AccountType, JournalEntry, JournalLine, ExpenseCategory,
+    Bill, BillStatus, CustomerInvoice, InvoiceStatus, InvoiceLineItem,
+    CustomerPayment, CreditMemo, CreditMemoStatus,
+    BillPayment, VendorCredit, VendorCreditStatus,
+    CustomerDepositModel,
+)
+from app.models.settings import AuditLog
 from app.models.flock import Flock, FlockStatus, FlockType, MortalityRecord, ProductionRecord, FlockSource
 from app.models.farm import FlockPlacement, Barn, Grower
 from app.models.inventory import EggSale
-from app.models.contracts import EggContract, ContractFlockAssignment
+from app.models.contracts import EggContract, ContractFlockAssignment, Buyer
 from app.models.logistics import Shipment, ShipmentLine, PickupItem, PickupJob, PickupStatus
 from app.models.weekly_record import WeeklyRecord, WeeklyProductionLog
 
@@ -816,3 +824,1057 @@ async def export_report_csv(db: AsyncSession, report_type: str, **kwargs):
         writer.writerow(["", "NET INCOME", data["net_income"]])
 
     return output.getvalue()
+
+
+# ── General Ledger ──
+
+async def get_general_ledger(db: AsyncSession, date_from: str, date_to: str):
+    """Return all posted journal lines grouped by account with running balance per account."""
+    accounts_result = await db.execute(
+        select(Account).where(Account.is_active == True).order_by(Account.account_number)
+    )
+    accounts = accounts_result.scalars().all()
+
+    ledger = []
+    for account in accounts:
+        lines_query = (
+            select(
+                JournalLine.debit,
+                JournalLine.credit,
+                JournalEntry.entry_date,
+                JournalEntry.entry_number,
+                JournalEntry.description,
+            )
+            .join(JournalEntry, JournalLine.journal_entry_id == JournalEntry.id)
+            .where(
+                JournalLine.account_id == account.id,
+                JournalEntry.is_posted == True,
+                JournalEntry.entry_date >= date_from,
+                JournalEntry.entry_date <= date_to,
+            )
+            .order_by(JournalEntry.entry_date, JournalEntry.entry_number)
+        )
+        lines_result = await db.execute(lines_query)
+        lines = lines_result.all()
+
+        if not lines:
+            continue
+
+        running_balance = Decimal("0")
+        # Revenue/Liability/Equity: credit-normal.  Asset/Expense: debit-normal.
+        credit_normal = account.account_type in (
+            AccountType.REVENUE, AccountType.LIABILITY, AccountType.EQUITY,
+        )
+        transactions = []
+        for line in lines:
+            debit = line.debit or Decimal("0")
+            credit = line.credit or Decimal("0")
+            if credit_normal:
+                running_balance += credit - debit
+            else:
+                running_balance += debit - credit
+            transactions.append({
+                "date": line.entry_date,
+                "entry_number": line.entry_number,
+                "description": line.description,
+                "debit": float(debit),
+                "credit": float(credit),
+                "running_balance": round(float(running_balance), 2),
+            })
+
+        ledger.append({
+            "account_number": account.account_number,
+            "account_name": account.name,
+            "account_type": account.account_type.value if hasattr(account.account_type, 'value') else account.account_type,
+            "transactions": transactions,
+        })
+
+    return ledger
+
+
+# ── Audit Trail ──
+
+async def get_audit_trail(
+    db: AsyncSession,
+    date_from: str = None,
+    date_to: str = None,
+    entity_type: str = None,
+):
+    """Return complete audit trail from AuditLog, sorted newest first."""
+    query = select(AuditLog).order_by(AuditLog.created_at.desc())
+
+    if date_from:
+        query = query.where(AuditLog.created_at >= date_from)
+    if date_to:
+        query = query.where(AuditLog.created_at <= date_to)
+    if entity_type:
+        query = query.where(AuditLog.entity_type == entity_type)
+
+    result = await db.execute(query)
+    rows = result.scalars().all()
+
+    return [
+        {
+            "id": row.id,
+            "action": row.action,
+            "entity_type": row.entity_type,
+            "entity_id": row.entity_id,
+            "description": row.description,
+            "details": row.details,
+            "user": row.user,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
+
+
+# ── AR Aging Detail ──
+
+async def get_ar_aging_detail(db: AsyncSession):
+    """Return every open invoice with aging detail and customer totals."""
+    today = date.today()
+    query = (
+        select(CustomerInvoice)
+        .where(CustomerInvoice.status.in_([InvoiceStatus.SENT, InvoiceStatus.PARTIAL, InvoiceStatus.OVERDUE]))
+        .order_by(CustomerInvoice.due_date)
+    )
+    result = await db.execute(query)
+    invoices = result.scalars().all()
+
+    detail = []
+    customer_map: dict[str, dict] = {}
+
+    for inv in invoices:
+        balance = float(inv.amount) - float(inv.amount_paid)
+        due = date.fromisoformat(inv.due_date) if isinstance(inv.due_date, str) else inv.due_date
+        days_overdue = (today - due).days
+        if days_overdue < 0:
+            days_overdue = 0
+
+        detail.append({
+            "invoice_number": inv.invoice_number,
+            "buyer": inv.buyer,
+            "buyer_id": inv.buyer_id,
+            "invoice_date": inv.invoice_date,
+            "due_date": inv.due_date,
+            "amount": float(inv.amount),
+            "amount_paid": float(inv.amount_paid),
+            "balance": round(balance, 2),
+            "days_overdue": days_overdue,
+            "terms": inv.terms,
+            "po_number": inv.po_number,
+        })
+
+        key = inv.buyer_id or inv.buyer
+        if key not in customer_map:
+            customer_map[key] = {"buyer": inv.buyer, "buyer_id": inv.buyer_id, "total_balance": 0.0}
+        customer_map[key]["total_balance"] += balance
+
+    # Sort by days_overdue descending
+    detail.sort(key=lambda x: x["days_overdue"], reverse=True)
+
+    customer_totals = [
+        {"buyer": v["buyer"], "buyer_id": v["buyer_id"], "total_balance": round(v["total_balance"], 2)}
+        for v in sorted(customer_map.values(), key=lambda x: x["total_balance"], reverse=True)
+    ]
+
+    return {"invoices": detail, "customer_totals": customer_totals}
+
+
+# ── AP Aging Detail ──
+
+async def get_ap_aging_detail(db: AsyncSession):
+    """Return every open bill with aging detail and vendor totals."""
+    today = date.today()
+    query = (
+        select(Bill)
+        .where(Bill.status.in_([BillStatus.RECEIVED, BillStatus.PARTIAL, BillStatus.OVERDUE]))
+        .order_by(Bill.due_date)
+    )
+    result = await db.execute(query)
+    bills = result.scalars().all()
+
+    detail = []
+    vendor_map: dict[str, dict] = {}
+
+    for bill in bills:
+        balance = float(bill.amount) - float(bill.amount_paid)
+        due = date.fromisoformat(bill.due_date) if isinstance(bill.due_date, str) else bill.due_date
+        days_overdue = (today - due).days
+        if days_overdue < 0:
+            days_overdue = 0
+
+        detail.append({
+            "bill_number": bill.bill_number,
+            "vendor_name": bill.vendor_name,
+            "vendor_id": bill.vendor_id,
+            "bill_date": bill.bill_date,
+            "due_date": bill.due_date,
+            "amount": float(bill.amount),
+            "amount_paid": float(bill.amount_paid),
+            "balance": round(balance, 2),
+            "days_overdue": days_overdue,
+            "terms": bill.terms,
+            "flock_id": bill.flock_id,
+        })
+
+        key = bill.vendor_id or bill.vendor_name
+        if key not in vendor_map:
+            vendor_map[key] = {"vendor_name": bill.vendor_name, "vendor_id": bill.vendor_id, "total_balance": 0.0}
+        vendor_map[key]["total_balance"] += balance
+
+    # Sort by days_overdue descending
+    detail.sort(key=lambda x: x["days_overdue"], reverse=True)
+
+    vendor_totals = [
+        {"vendor_name": v["vendor_name"], "vendor_id": v["vendor_id"], "total_balance": round(v["total_balance"], 2)}
+        for v in sorted(vendor_map.values(), key=lambda x: x["total_balance"], reverse=True)
+    ]
+
+    return {"bills": detail, "vendor_totals": vendor_totals}
+
+
+# ── Customer Balances ──
+
+async def get_customer_balances(db: AsyncSession):
+    """Group all open invoices by buyer and return summary balances."""
+    query = (
+        select(CustomerInvoice)
+        .where(CustomerInvoice.status.in_([
+            InvoiceStatus.SENT, InvoiceStatus.PARTIAL, InvoiceStatus.OVERDUE,
+        ]))
+    )
+    result = await db.execute(query)
+    invoices = result.scalars().all()
+
+    groups: dict[str, dict] = {}
+    for inv in invoices:
+        key = inv.buyer_id or inv.buyer
+        if key not in groups:
+            groups[key] = {
+                "buyer": inv.buyer,
+                "buyer_id": inv.buyer_id,
+                "total_amount": 0.0,
+                "total_paid": 0.0,
+                "invoice_count": 0,
+                "oldest_invoice_date": inv.invoice_date,
+            }
+        g = groups[key]
+        g["total_amount"] += float(inv.amount)
+        g["total_paid"] += float(inv.amount_paid)
+        g["invoice_count"] += 1
+        if inv.invoice_date < g["oldest_invoice_date"]:
+            g["oldest_invoice_date"] = inv.invoice_date
+
+    return [
+        {
+            "buyer": g["buyer"],
+            "buyer_id": g["buyer_id"],
+            "total_amount": round(g["total_amount"], 2),
+            "total_paid": round(g["total_paid"], 2),
+            "balance": round(g["total_amount"] - g["total_paid"], 2),
+            "invoice_count": g["invoice_count"],
+            "oldest_invoice_date": g["oldest_invoice_date"],
+        }
+        for g in sorted(groups.values(), key=lambda x: x["total_amount"] - x["total_paid"], reverse=True)
+    ]
+
+
+# ── Vendor Balances ──
+
+async def get_vendor_balances(db: AsyncSession):
+    """Group all open bills by vendor and return summary balances."""
+    query = (
+        select(Bill)
+        .where(Bill.status.in_([
+            BillStatus.RECEIVED, BillStatus.PARTIAL, BillStatus.OVERDUE,
+        ]))
+    )
+    result = await db.execute(query)
+    bills = result.scalars().all()
+
+    groups: dict[str, dict] = {}
+    for bill in bills:
+        key = bill.vendor_id or bill.vendor_name
+        if key not in groups:
+            groups[key] = {
+                "vendor_name": bill.vendor_name,
+                "vendor_id": bill.vendor_id,
+                "total_amount": 0.0,
+                "total_paid": 0.0,
+                "bill_count": 0,
+                "oldest_bill_date": bill.bill_date,
+            }
+        g = groups[key]
+        g["total_amount"] += float(bill.amount)
+        g["total_paid"] += float(bill.amount_paid)
+        g["bill_count"] += 1
+        if bill.bill_date < g["oldest_bill_date"]:
+            g["oldest_bill_date"] = bill.bill_date
+
+    return [
+        {
+            "vendor_name": g["vendor_name"],
+            "vendor_id": g["vendor_id"],
+            "total_amount": round(g["total_amount"], 2),
+            "total_paid": round(g["total_paid"], 2),
+            "balance": round(g["total_amount"] - g["total_paid"], 2),
+            "bill_count": g["bill_count"],
+            "oldest_bill_date": g["oldest_bill_date"],
+        }
+        for g in sorted(groups.values(), key=lambda x: x["total_amount"] - x["total_paid"], reverse=True)
+    ]
+
+
+# ── Flock P&L ──
+
+async def get_flock_pnl(db: AsyncSession, flock_id: str):
+    """Generate a full P&L for a single flock."""
+    flock = await db.get(Flock, flock_id)
+    if not flock:
+        raise ValueError("Flock not found")
+
+    # ── Revenue accounts: journal lines on REVENUE accounts for this flock's entries ──
+    rev_query = (
+        select(
+            Account.account_number,
+            Account.name,
+            func.coalesce(func.sum(JournalLine.credit), 0).label("total_credit"),
+            func.coalesce(func.sum(JournalLine.debit), 0).label("total_debit"),
+        )
+        .join(JournalEntry, JournalLine.journal_entry_id == JournalEntry.id)
+        .join(Account, JournalLine.account_id == Account.id)
+        .where(
+            JournalEntry.flock_id == flock_id,
+            JournalEntry.is_posted == True,
+            Account.account_type == AccountType.REVENUE,
+        )
+        .group_by(Account.id, Account.account_number, Account.name)
+        .order_by(Account.account_number)
+    )
+    rev_result = await db.execute(rev_query)
+    rev_rows = rev_result.all()
+
+    revenue_accounts = []
+    total_revenue = Decimal("0")
+    for row in rev_rows:
+        amount = row.total_credit - row.total_debit
+        total_revenue += amount
+        revenue_accounts.append({
+            "account_number": row.account_number,
+            "account_name": row.name,
+            "amount": round(float(amount), 2),
+        })
+
+    # Also include revenue from InvoiceLineItem tied to this flock
+    inv_rev_query = (
+        select(func.coalesce(func.sum(InvoiceLineItem.amount), 0))
+        .join(CustomerInvoice, InvoiceLineItem.invoice_id == CustomerInvoice.id)
+        .where(
+            InvoiceLineItem.flock_id == flock_id,
+            CustomerInvoice.status != InvoiceStatus.CANCELLED,
+        )
+    )
+    inv_rev_result = await db.execute(inv_rev_query)
+    invoice_revenue = Decimal(str(inv_rev_result.scalar() or 0))
+
+    # Only add invoice revenue if it exceeds what the journal already captured
+    if invoice_revenue > total_revenue:
+        diff = invoice_revenue - total_revenue
+        revenue_accounts.append({
+            "account_number": "",
+            "account_name": "Invoice Revenue (unposted)",
+            "amount": round(float(diff), 2),
+        })
+        total_revenue = invoice_revenue
+
+    # ── Expense accounts ──
+    exp_query = (
+        select(
+            Account.account_number,
+            Account.name,
+            func.coalesce(func.sum(JournalLine.debit), 0).label("total_debit"),
+            func.coalesce(func.sum(JournalLine.credit), 0).label("total_credit"),
+        )
+        .join(JournalEntry, JournalLine.journal_entry_id == JournalEntry.id)
+        .join(Account, JournalLine.account_id == Account.id)
+        .where(
+            JournalEntry.flock_id == flock_id,
+            JournalEntry.is_posted == True,
+            Account.account_type == AccountType.EXPENSE,
+        )
+        .group_by(Account.id, Account.account_number, Account.name)
+        .order_by(Account.account_number)
+    )
+    exp_result = await db.execute(exp_query)
+    exp_rows = exp_result.all()
+
+    expense_accounts = []
+    total_expenses = Decimal("0")
+    for row in exp_rows:
+        amount = row.total_debit - row.total_credit
+        total_expenses += amount
+        expense_accounts.append({
+            "account_number": row.account_number,
+            "account_name": row.name,
+            "amount": round(float(amount), 2),
+        })
+
+    net_income = total_revenue - total_expenses
+
+    # ── Per-bird / per-dozen metrics ──
+    birds = flock.initial_bird_count or 0
+
+    prod_result = await db.execute(
+        select(func.coalesce(func.sum(ProductionRecord.egg_count), 0))
+        .where(ProductionRecord.flock_id == flock_id)
+    )
+    total_eggs = int(prod_result.scalar() or 0)
+    total_dozens = total_eggs / 12 if total_eggs > 0 else 0
+
+    metrics = {
+        "per_bird_revenue": round(float(total_revenue) / birds, 2) if birds > 0 else 0,
+        "per_bird_expense": round(float(total_expenses) / birds, 2) if birds > 0 else 0,
+        "per_bird_net_income": round(float(net_income) / birds, 2) if birds > 0 else 0,
+        "per_dozen_revenue": round(float(total_revenue) / total_dozens, 2) if total_dozens > 0 else 0,
+        "per_dozen_expense": round(float(total_expenses) / total_dozens, 2) if total_dozens > 0 else 0,
+        "per_dozen_net_income": round(float(net_income) / total_dozens, 2) if total_dozens > 0 else 0,
+        "total_eggs": total_eggs,
+        "total_dozens": round(total_dozens, 1),
+        "initial_bird_count": birds,
+    }
+
+    return {
+        "flock_id": flock_id,
+        "flock_number": flock.flock_number,
+        "flock_type": flock.flock_type.value if hasattr(flock.flock_type, 'value') else flock.flock_type,
+        "status": flock.status.value if hasattr(flock.status, 'value') else flock.status,
+        "revenue_accounts": revenue_accounts,
+        "expense_accounts": expense_accounts,
+        "total_revenue": round(float(total_revenue), 2),
+        "total_expenses": round(float(total_expenses), 2),
+        "net_income": round(float(net_income), 2),
+        "metrics": metrics,
+    }
+
+
+# ── Flock Cost Dashboard ──
+
+async def get_flock_cost_dashboard(db: AsyncSession):
+    """For all ACTIVE flocks, return a lightweight cost dashboard."""
+    flocks_result = await db.execute(
+        select(Flock).where(Flock.status == FlockStatus.ACTIVE).order_by(Flock.flock_number)
+    )
+    flocks = flocks_result.scalars().all()
+    today = date.today()
+
+    dashboard = []
+    for flock in flocks:
+        # Weeks active
+        if flock.arrival_date:
+            arrival = date.fromisoformat(flock.arrival_date) if isinstance(flock.arrival_date, str) else flock.arrival_date
+            weeks_active = max((today - arrival).days / 7, 0)
+        else:
+            weeks_active = 0
+
+        # Expected lifecycle in weeks
+        if flock.flock_type == FlockType.LAYER:
+            expected_lifecycle_weeks = 80
+        else:
+            expected_lifecycle_weeks = 18  # pullets
+
+        # Total expenses
+        exp_result = await db.execute(
+            select(func.coalesce(func.sum(JournalLine.debit), 0))
+            .join(JournalEntry, JournalLine.journal_entry_id == JournalEntry.id)
+            .join(Account, JournalLine.account_id == Account.id)
+            .where(
+                JournalEntry.flock_id == flock.id,
+                JournalEntry.is_posted == True,
+                Account.account_type == AccountType.EXPENSE,
+            )
+        )
+        total_expenses = float(exp_result.scalar() or 0)
+
+        # Total revenue
+        rev_result = await db.execute(
+            select(func.coalesce(func.sum(JournalLine.credit), 0))
+            .join(JournalEntry, JournalLine.journal_entry_id == JournalEntry.id)
+            .join(Account, JournalLine.account_id == Account.id)
+            .where(
+                JournalEntry.flock_id == flock.id,
+                JournalEntry.is_posted == True,
+                Account.account_type == AccountType.REVENUE,
+            )
+        )
+        total_revenue = float(rev_result.scalar() or 0)
+
+        net_profit = total_revenue - total_expenses
+        birds = flock.current_bird_count or flock.initial_bird_count or 0
+        cost_per_bird = round(total_expenses / birds, 2) if birds > 0 else 0
+        cost_per_week = round(total_expenses / weeks_active, 2) if weeks_active > 0 else 0
+
+        # Projected total cost based on burn rate and expected lifecycle
+        projected_total_cost = round(cost_per_week * expected_lifecycle_weeks, 2) if cost_per_week > 0 else 0
+
+        # Grower + barn from current placement
+        placement_result = await db.execute(
+            select(FlockPlacement)
+            .where(FlockPlacement.flock_id == flock.id, FlockPlacement.is_current == True)
+            .limit(1)
+        )
+        placement = placement_result.scalars().first()
+        grower_name = ""
+        barn_name = ""
+        if placement:
+            barn = await db.get(Barn, placement.barn_id)
+            if barn:
+                barn_name = barn.name
+                grower = await db.get(Grower, barn.grower_id)
+                if grower:
+                    grower_name = grower.name
+
+        dashboard.append({
+            "flock_id": flock.id,
+            "flock_number": flock.flock_number,
+            "flock_type": flock.flock_type.value if hasattr(flock.flock_type, 'value') else flock.flock_type,
+            "grower_name": grower_name,
+            "barn_name": barn_name,
+            "bird_count": birds,
+            "weeks_active": round(weeks_active, 1),
+            "total_expenses": round(total_expenses, 2),
+            "total_revenue": round(total_revenue, 2),
+            "net_profit": round(net_profit, 2),
+            "cost_per_bird": cost_per_bird,
+            "cost_per_week": cost_per_week,
+            "projected_total_cost": projected_total_cost,
+            "expected_lifecycle_weeks": expected_lifecycle_weeks,
+        })
+
+    return dashboard
+
+
+# ── Customer Statements ──
+
+async def get_customer_statement(db: AsyncSession, customer_name: str, date_from: str, date_to: str):
+    """Generate a statement for a single customer (egg buyer) showing all activity in date range."""
+    today = date.today()
+
+    # ── Invoices in date range ──
+    inv_query = (
+        select(CustomerInvoice)
+        .where(
+            CustomerInvoice.buyer == customer_name,
+            CustomerInvoice.invoice_date >= date_from,
+            CustomerInvoice.invoice_date <= date_to,
+            CustomerInvoice.status != InvoiceStatus.CANCELLED,
+        )
+        .order_by(CustomerInvoice.invoice_date)
+    )
+    inv_result = await db.execute(inv_query)
+    invoices = inv_result.scalars().all()
+
+    # ── Customer Payments in date range ──
+    pay_query = (
+        select(CustomerPayment)
+        .where(
+            CustomerPayment.customer_name == customer_name,
+            CustomerPayment.payment_date >= date_from,
+            CustomerPayment.payment_date <= date_to,
+        )
+        .order_by(CustomerPayment.payment_date)
+    )
+    pay_result = await db.execute(pay_query)
+    payments = pay_result.scalars().all()
+
+    # ── Credit Memos in date range ──
+    cm_query = (
+        select(CreditMemo)
+        .where(
+            CreditMemo.buyer == customer_name,
+            CreditMemo.memo_date >= date_from,
+            CreditMemo.memo_date <= date_to,
+            CreditMemo.status != CreditMemoStatus.VOIDED,
+        )
+        .order_by(CreditMemo.memo_date)
+    )
+    cm_result = await db.execute(cm_query)
+    credit_memos = cm_result.scalars().all()
+
+    # ── Customer Deposits in date range ──
+    dep_query = (
+        select(CustomerDepositModel)
+        .where(
+            CustomerDepositModel.customer_name == customer_name,
+            CustomerDepositModel.deposit_date >= date_from,
+            CustomerDepositModel.deposit_date <= date_to,
+        )
+        .order_by(CustomerDepositModel.deposit_date)
+    )
+    dep_result = await db.execute(dep_query)
+    deposits = dep_result.scalars().all()
+
+    # ── Beginning balance: all unpaid invoice amounts before date_from ──
+    prior_inv_query = (
+        select(func.coalesce(func.sum(CustomerInvoice.amount), 0))
+        .where(
+            CustomerInvoice.buyer == customer_name,
+            CustomerInvoice.invoice_date < date_from,
+            CustomerInvoice.status != InvoiceStatus.CANCELLED,
+        )
+    )
+    prior_inv_result = await db.execute(prior_inv_query)
+    prior_invoiced = float(prior_inv_result.scalar() or 0)
+
+    prior_pay_query = (
+        select(func.coalesce(func.sum(CustomerPayment.amount), 0))
+        .where(
+            CustomerPayment.customer_name == customer_name,
+            CustomerPayment.payment_date < date_from,
+        )
+    )
+    prior_pay_result = await db.execute(prior_pay_query)
+    prior_paid = float(prior_pay_result.scalar() or 0)
+
+    prior_cm_query = (
+        select(func.coalesce(func.sum(CreditMemo.amount), 0))
+        .where(
+            CreditMemo.buyer == customer_name,
+            CreditMemo.memo_date < date_from,
+            CreditMemo.status != CreditMemoStatus.VOIDED,
+        )
+    )
+    prior_cm_result = await db.execute(prior_cm_query)
+    prior_credits = float(prior_cm_result.scalar() or 0)
+
+    prior_dep_query = (
+        select(func.coalesce(func.sum(CustomerDepositModel.amount), 0))
+        .where(
+            CustomerDepositModel.customer_name == customer_name,
+            CustomerDepositModel.deposit_date < date_from,
+        )
+    )
+    prior_dep_result = await db.execute(prior_dep_query)
+    prior_deposits = float(prior_dep_result.scalar() or 0)
+
+    beginning_balance = round(prior_invoiced - prior_paid - prior_credits - prior_deposits, 2)
+
+    # ── Build transaction list ──
+    transactions = []
+
+    for inv in invoices:
+        transactions.append({
+            "date": inv.invoice_date,
+            "type": "Invoice",
+            "number": inv.invoice_number,
+            "description": inv.description or f"Invoice {inv.invoice_number}",
+            "charges": round(float(inv.amount), 2),
+            "payments": 0,
+            "sort_key": (inv.invoice_date, 0, inv.invoice_number),
+        })
+
+    for pay in payments:
+        transactions.append({
+            "date": pay.payment_date,
+            "type": "Payment",
+            "number": pay.reference or "",
+            "description": pay.memo or f"Payment received",
+            "charges": 0,
+            "payments": round(float(pay.amount), 2),
+            "sort_key": (pay.payment_date, 1, pay.reference or ""),
+        })
+
+    for cm in credit_memos:
+        transactions.append({
+            "date": cm.memo_date,
+            "type": "Credit",
+            "number": cm.memo_number,
+            "description": cm.reason or f"Credit memo {cm.memo_number}",
+            "charges": 0,
+            "payments": round(float(cm.amount), 2),
+            "sort_key": (cm.memo_date, 2, cm.memo_number),
+        })
+
+    for dep in deposits:
+        transactions.append({
+            "date": dep.deposit_date,
+            "type": "Deposit",
+            "number": dep.deposit_number,
+            "description": dep.memo or f"Customer deposit",
+            "charges": 0,
+            "payments": round(float(dep.amount), 2),
+            "sort_key": (dep.deposit_date, 3, dep.deposit_number),
+        })
+
+    # Sort by date, then type order, then number
+    transactions.sort(key=lambda t: t["sort_key"])
+
+    # Calculate running balance
+    running = beginning_balance
+    for txn in transactions:
+        running = round(running + txn["charges"] - txn["payments"], 2)
+        txn["balance"] = running
+        del txn["sort_key"]
+
+    ending_balance = running
+
+    # ── Aging buckets based on all open invoices for this customer ──
+    aging = {"current": 0, "over_30": 0, "over_60": 0, "over_90": 0}
+    open_inv_query = (
+        select(CustomerInvoice)
+        .where(
+            CustomerInvoice.buyer == customer_name,
+            CustomerInvoice.status.in_([InvoiceStatus.SENT, InvoiceStatus.PARTIAL, InvoiceStatus.OVERDUE]),
+        )
+    )
+    open_inv_result = await db.execute(open_inv_query)
+    open_invoices = open_inv_result.scalars().all()
+
+    for inv in open_invoices:
+        balance = float(inv.amount) - float(inv.amount_paid)
+        if balance <= 0:
+            continue
+        due = date.fromisoformat(inv.due_date) if isinstance(inv.due_date, str) else inv.due_date
+        days_overdue = (today - due).days
+        if days_overdue <= 0:
+            aging["current"] += balance
+        elif days_overdue <= 30:
+            aging["over_30"] += balance
+        elif days_overdue <= 60:
+            aging["over_60"] += balance
+        else:
+            aging["over_90"] += balance
+
+    aging = {k: round(v, 2) for k, v in aging.items()}
+
+    return {
+        "customer_name": customer_name,
+        "statement_date": today.isoformat(),
+        "date_from": date_from,
+        "date_to": date_to,
+        "beginning_balance": beginning_balance,
+        "transactions": transactions,
+        "ending_balance": ending_balance,
+        "aging": aging,
+    }
+
+
+async def get_batch_customer_statements(db: AsyncSession, date_from: str, date_to: str):
+    """Generate statements for all customers with any activity or open balance."""
+    # Find all unique customer names from invoices, payments, credit memos
+    inv_buyers_query = select(CustomerInvoice.buyer).distinct()
+    inv_result = await db.execute(inv_buyers_query)
+    inv_buyers = {r[0] for r in inv_result.all()}
+
+    pay_buyers_query = select(CustomerPayment.customer_name).distinct()
+    pay_result = await db.execute(pay_buyers_query)
+    pay_buyers = {r[0] for r in pay_result.all()}
+
+    all_customers = sorted(inv_buyers | pay_buyers)
+
+    statements = []
+    total_balance = 0.0
+
+    for customer_name in all_customers:
+        stmt = await get_customer_statement(db, customer_name, date_from, date_to)
+        # Only include if there's a non-zero ending balance or transactions in period
+        if stmt["ending_balance"] != 0 or len(stmt["transactions"]) > 0:
+            statements.append(stmt)
+            total_balance += stmt["ending_balance"]
+
+    return {
+        "statements": statements,
+        "summary": {
+            "total_customers": len(statements),
+            "total_balance": round(total_balance, 2),
+        },
+    }
+
+
+async def get_customer_statement_print_view(db: AsyncSession, customer_name: str, date_from: str, date_to: str):
+    """Return print-ready statement data (same data, flagged for print layout)."""
+    stmt = await get_customer_statement(db, customer_name, date_from, date_to)
+    stmt["print_view"] = True
+
+    # Look up buyer details for the print header
+    buyer_query = select(Buyer).where(Buyer.name == customer_name)
+    buyer_result = await db.execute(buyer_query)
+    buyer = buyer_result.scalars().first()
+
+    stmt["buyer_details"] = {
+        "name": buyer.name if buyer else customer_name,
+        "company": buyer.company if buyer else None,
+        "contact_name": buyer.contact_name if buyer else None,
+        "address": buyer.bill_to_address or (buyer.address if buyer else None),
+        "email": buyer.email if buyer else None,
+        "phone": buyer.phone if buyer else None,
+    }
+
+    return stmt
+
+
+async def email_batch_statements(db: AsyncSession, date_from: str, date_to: str):
+    """Email statements to all customers who have an email on file."""
+    from app.services import email_service
+
+    batch = await get_batch_customer_statements(db, date_from, date_to)
+    sent = 0
+    failed = 0
+    skipped = 0
+    errors = []
+
+    for stmt in batch["statements"]:
+        # Look up buyer email
+        buyer_query = select(Buyer).where(Buyer.name == stmt["customer_name"])
+        buyer_result = await db.execute(buyer_query)
+        buyer = buyer_result.scalars().first()
+
+        if not buyer or not buyer.email:
+            skipped += 1
+            continue
+
+        # Build email body
+        subject = f"Level Valley Farms — Statement for {stmt['customer_name']} ({stmt['date_from']} to {stmt['date_to']})"
+        rows_html = ""
+        for txn in stmt["transactions"]:
+            charges = f"${txn['charges']:,.2f}" if txn['charges'] else ""
+            payments = f"${txn['payments']:,.2f}" if txn['payments'] else ""
+            rows_html += f"""
+            <tr>
+                <td style="padding:6px;border-bottom:1px solid #ddd">{txn['date']}</td>
+                <td style="padding:6px;border-bottom:1px solid #ddd">{txn['type']}</td>
+                <td style="padding:6px;border-bottom:1px solid #ddd">{txn['number']}</td>
+                <td style="padding:6px;border-bottom:1px solid #ddd">{txn['description']}</td>
+                <td style="padding:6px;border-bottom:1px solid #ddd;text-align:right">{charges}</td>
+                <td style="padding:6px;border-bottom:1px solid #ddd;text-align:right">{payments}</td>
+                <td style="padding:6px;border-bottom:1px solid #ddd;text-align:right">${txn['balance']:,.2f}</td>
+            </tr>"""
+
+        body_html = f"""
+        <div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto">
+            <h2 style="color:#333">Level Valley Farms</h2>
+            <h3>Statement of Account</h3>
+            <p><strong>{stmt['customer_name']}</strong></p>
+            <p>Period: {stmt['date_from']} to {stmt['date_to']}</p>
+            <p>Beginning Balance: <strong>${stmt['beginning_balance']:,.2f}</strong></p>
+            <table style="width:100%;border-collapse:collapse;margin:16px 0">
+                <thead>
+                    <tr style="background:#f5f5f5">
+                        <th style="padding:8px;text-align:left">Date</th>
+                        <th style="padding:8px;text-align:left">Type</th>
+                        <th style="padding:8px;text-align:left">Number</th>
+                        <th style="padding:8px;text-align:left">Description</th>
+                        <th style="padding:8px;text-align:right">Charges</th>
+                        <th style="padding:8px;text-align:right">Payments</th>
+                        <th style="padding:8px;text-align:right">Balance</th>
+                    </tr>
+                </thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+            <p style="font-size:18px"><strong>Balance Due: ${stmt['ending_balance']:,.2f}</strong></p>
+            <hr>
+            <p style="font-size:12px;color:#666">
+                Aging: Current ${stmt['aging']['current']:,.2f} |
+                1-30 Days ${stmt['aging']['over_30']:,.2f} |
+                31-60 Days ${stmt['aging']['over_60']:,.2f} |
+                Over 60 Days ${stmt['aging']['over_90']:,.2f}
+            </p>
+        </div>
+        """
+
+        try:
+            await email_service.send_email(db, buyer.email, subject, body_html)
+            sent += 1
+        except Exception as e:
+            failed += 1
+            errors.append({"customer": stmt["customer_name"], "error": str(e)})
+
+    return {
+        "sent": sent,
+        "failed": failed,
+        "skipped": skipped,
+        "errors": errors,
+        "total_customers": len(batch["statements"]),
+    }
+
+
+# ── Vendor Statements ──
+
+async def get_vendor_statement(db: AsyncSession, vendor_name: str, date_from: str, date_to: str):
+    """Generate a statement for a single vendor showing all AP activity in date range."""
+    today = date.today()
+
+    # ── Bills in date range ──
+    bill_query = (
+        select(Bill)
+        .where(
+            Bill.vendor_name == vendor_name,
+            Bill.bill_date >= date_from,
+            Bill.bill_date <= date_to,
+            Bill.status != BillStatus.CANCELLED,
+        )
+        .order_by(Bill.bill_date)
+    )
+    bill_result = await db.execute(bill_query)
+    bills = bill_result.scalars().all()
+
+    # ── Bill Payments in date range ──
+    # Get all bills for this vendor first, then payments on those bills
+    all_vendor_bills_query = select(Bill.id).where(Bill.vendor_name == vendor_name)
+    all_vendor_bills_result = await db.execute(all_vendor_bills_query)
+    vendor_bill_ids = [r[0] for r in all_vendor_bills_result.all()]
+
+    bill_payments = []
+    if vendor_bill_ids:
+        bp_query = (
+            select(BillPayment)
+            .where(
+                BillPayment.bill_id.in_(vendor_bill_ids),
+                BillPayment.payment_date >= date_from,
+                BillPayment.payment_date <= date_to,
+            )
+            .order_by(BillPayment.payment_date)
+        )
+        bp_result = await db.execute(bp_query)
+        bill_payments = bp_result.scalars().all()
+
+    # ── Vendor Credits in date range ──
+    vc_query = (
+        select(VendorCredit)
+        .where(
+            VendorCredit.vendor_name == vendor_name,
+            VendorCredit.credit_date >= date_from,
+            VendorCredit.credit_date <= date_to,
+            VendorCredit.status != VendorCreditStatus.VOIDED,
+        )
+        .order_by(VendorCredit.credit_date)
+    )
+    vc_result = await db.execute(vc_query)
+    vendor_credits = vc_result.scalars().all()
+
+    # ── Beginning balance ──
+    prior_bills_query = (
+        select(func.coalesce(func.sum(Bill.amount), 0))
+        .where(
+            Bill.vendor_name == vendor_name,
+            Bill.bill_date < date_from,
+            Bill.status != BillStatus.CANCELLED,
+        )
+    )
+    prior_bills_result = await db.execute(prior_bills_query)
+    prior_billed = float(prior_bills_result.scalar() or 0)
+
+    prior_paid = 0.0
+    if vendor_bill_ids:
+        prior_bp_query = (
+            select(func.coalesce(func.sum(BillPayment.amount), 0))
+            .where(
+                BillPayment.bill_id.in_(vendor_bill_ids),
+                BillPayment.payment_date < date_from,
+            )
+        )
+        prior_bp_result = await db.execute(prior_bp_query)
+        prior_paid = float(prior_bp_result.scalar() or 0)
+
+    prior_vc_query = (
+        select(func.coalesce(func.sum(VendorCredit.amount), 0))
+        .where(
+            VendorCredit.vendor_name == vendor_name,
+            VendorCredit.credit_date < date_from,
+            VendorCredit.status != VendorCreditStatus.VOIDED,
+        )
+    )
+    prior_vc_result = await db.execute(prior_vc_query)
+    prior_credits = float(prior_vc_result.scalar() or 0)
+
+    beginning_balance = round(prior_billed - prior_paid - prior_credits, 2)
+
+    # ── Build transaction list ──
+    transactions = []
+
+    for bill in bills:
+        transactions.append({
+            "date": bill.bill_date,
+            "type": "Bill",
+            "number": bill.bill_number,
+            "description": bill.description or f"Bill {bill.bill_number}",
+            "charges": round(float(bill.amount), 2),
+            "payments": 0,
+            "sort_key": (bill.bill_date, 0, bill.bill_number),
+        })
+
+    for bp in bill_payments:
+        # Look up the bill for reference
+        bill = await db.get(Bill, bp.bill_id)
+        bill_ref = bill.bill_number if bill else ""
+        transactions.append({
+            "date": bp.payment_date,
+            "type": "Payment",
+            "number": bp.reference or "",
+            "description": bp.notes or f"Payment on bill {bill_ref}",
+            "charges": 0,
+            "payments": round(float(bp.amount), 2),
+            "sort_key": (bp.payment_date, 1, bp.reference or ""),
+        })
+
+    for vc in vendor_credits:
+        transactions.append({
+            "date": vc.credit_date,
+            "type": "Credit",
+            "number": vc.credit_number,
+            "description": vc.description or f"Vendor credit {vc.credit_number}",
+            "charges": 0,
+            "payments": round(float(vc.amount), 2),
+            "sort_key": (vc.credit_date, 2, vc.credit_number),
+        })
+
+    transactions.sort(key=lambda t: t["sort_key"])
+
+    # Running balance
+    running = beginning_balance
+    for txn in transactions:
+        running = round(running + txn["charges"] - txn["payments"], 2)
+        txn["balance"] = running
+        del txn["sort_key"]
+
+    ending_balance = running
+
+    # ── Aging buckets ──
+    aging = {"current": 0, "over_30": 0, "over_60": 0, "over_90": 0}
+    open_bills_query = (
+        select(Bill)
+        .where(
+            Bill.vendor_name == vendor_name,
+            Bill.status.in_([BillStatus.RECEIVED, BillStatus.PARTIAL, BillStatus.OVERDUE]),
+        )
+    )
+    open_bills_result = await db.execute(open_bills_query)
+    open_bills = open_bills_result.scalars().all()
+
+    for bill in open_bills:
+        balance = float(bill.amount) - float(bill.amount_paid)
+        if balance <= 0:
+            continue
+        due = date.fromisoformat(bill.due_date) if isinstance(bill.due_date, str) else bill.due_date
+        days_overdue = (today - due).days
+        if days_overdue <= 0:
+            aging["current"] += balance
+        elif days_overdue <= 30:
+            aging["over_30"] += balance
+        elif days_overdue <= 60:
+            aging["over_60"] += balance
+        else:
+            aging["over_90"] += balance
+
+    aging = {k: round(v, 2) for k, v in aging.items()}
+
+    return {
+        "vendor_name": vendor_name,
+        "statement_date": today.isoformat(),
+        "date_from": date_from,
+        "date_to": date_to,
+        "beginning_balance": beginning_balance,
+        "transactions": transactions,
+        "ending_balance": ending_balance,
+        "aging": aging,
+    }

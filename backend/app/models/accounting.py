@@ -480,6 +480,91 @@ class CreditMemoLineItem(Base, TimestampMixin):
     credit_memo: Mapped["CreditMemo"] = relationship("CreditMemo", back_populates="line_items")
 
 
+class VendorCreditStatus(str, enum.Enum):
+    OPEN = "open"
+    PARTIAL = "partial"
+    APPLIED = "applied"
+    VOIDED = "voided"
+
+
+class VendorCredit(Base, TimestampMixin):
+    """A credit from a vendor (returned goods, billing error, etc.)."""
+    __tablename__ = "vendor_credits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    credit_number: Mapped[str] = mapped_column(String(100), nullable=False)
+    vendor_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    vendor_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("vendors.id"), index=True)
+    credit_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    amount_applied: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal("0.00"))
+    status: Mapped[VendorCreditStatus] = mapped_column(default=VendorCreditStatus.OPEN)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    ref_no: Mapped[Optional[str]] = mapped_column(String(100))
+
+    expense_lines: Mapped[List["VendorCreditExpenseLine"]] = relationship(
+        "VendorCreditExpenseLine", back_populates="vendor_credit", cascade="all, delete-orphan"
+    )
+
+
+class VendorCreditExpenseLine(Base, TimestampMixin):
+    __tablename__ = "vendor_credit_expense_lines"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    vendor_credit_id: Mapped[str] = mapped_column(String(36), ForeignKey("vendor_credits.id"), nullable=False)
+    account_id: Mapped[str] = mapped_column(String(36), ForeignKey("accounts.id"), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    memo: Mapped[Optional[str]] = mapped_column(String(500))
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"))
+
+    vendor_credit: Mapped["VendorCredit"] = relationship("VendorCredit", back_populates="expense_lines")
+
+
+class ItemReceiptStatus(str, enum.Enum):
+    OPEN = "open"  # received, no bill yet
+    BILLED = "billed"  # matched to a bill
+    VOIDED = "voided"
+
+
+class ItemReceipt(Base, TimestampMixin):
+    """An item receipt — goods received before the bill arrives."""
+    __tablename__ = "item_receipts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    receipt_number: Mapped[str] = mapped_column(String(100), nullable=False)
+    vendor_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    vendor_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("vendors.id"), index=True)
+    receipt_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    status: Mapped[ItemReceiptStatus] = mapped_column(default=ItemReceiptStatus.OPEN)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"), index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    ref_no: Mapped[Optional[str]] = mapped_column(String(100))  # delivery ticket number
+    bill_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("bills.id"))  # linked bill when matched
+    journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("journal_entries.id"))
+
+    lines: Mapped[List["ItemReceiptLine"]] = relationship("ItemReceiptLine", back_populates="item_receipt", cascade="all, delete-orphan")
+
+
+class ItemReceiptLine(Base, TimestampMixin):
+    """Line items on an item receipt."""
+    __tablename__ = "item_receipt_lines"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    item_receipt_id: Mapped[str] = mapped_column(String(36), ForeignKey("item_receipts.id"), nullable=False)
+    item_description: Mapped[str] = mapped_column(String(500), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(15, 4), default=Decimal("1"))
+    cost: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal("0"))
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    account_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("accounts.id"))
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"))
+
+    item_receipt: Mapped["ItemReceipt"] = relationship("ItemReceipt", back_populates="lines")
+
+
 class ReconciliationStatus(str, enum.Enum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -515,3 +600,362 @@ class ReconciliationItem(Base, TimestampMixin):
     is_cleared: Mapped[bool] = mapped_column(Boolean, default=False)
 
     reconciliation: Mapped["BankReconciliation"] = relationship("BankReconciliation", back_populates="items")
+
+
+class FlockBudget(Base, TimestampMixin):
+    """Budget entry for a flock by expense category."""
+    __tablename__ = "flock_budgets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    flock_id: Mapped[str] = mapped_column(String(36), ForeignKey("flocks.id"), nullable=False, index=True)
+    category: Mapped[ExpenseCategory] = mapped_column(nullable=False)
+    budgeted_amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class GrowerPaymentFormula(Base, TimestampMixin):
+    """Payment formula for calculating grower settlements."""
+    __tablename__ = "grower_payment_formulas"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    grower_id: Mapped[str] = mapped_column(String(36), ForeignKey("growers.id"), nullable=False, index=True)
+    base_rate_per_bird: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("0"))
+    mortality_deduction_rate: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("0"))
+    production_bonus_rate: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("0"))
+    production_target_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("80"))
+    feed_conversion_bonus: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("0"))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class RecurringTransactionType(str, enum.Enum):
+    INVOICE = "invoice"
+    BILL = "bill"
+    CHECK = "check"
+
+
+class RecurringTransaction(Base, TimestampMixin):
+    """Template for recurring invoices, bills, or checks that auto-generate."""
+    __tablename__ = "recurring_transactions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    transaction_type: Mapped[RecurringTransactionType] = mapped_column(nullable=False)
+    frequency: Mapped[RecurringFrequency] = mapped_column(nullable=False)
+    template_data: Mapped[str] = mapped_column(Text, nullable=False)  # JSON blob
+    customer_or_vendor_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"))
+    start_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    end_date: Mapped[Optional[str]] = mapped_column(String(10))
+    next_due_date: Mapped[Optional[str]] = mapped_column(String(10))
+    last_generated_date: Mapped[Optional[str]] = mapped_column(String(10))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class MemoizedTransactionType(str, enum.Enum):
+    INVOICE = "invoice"
+    BILL = "bill"
+    CHECK = "check"
+    JOURNAL_ENTRY = "journal_entry"
+    SALES_RECEIPT = "sales_receipt"
+
+
+class MemoizedTransaction(Base, TimestampMixin):
+    """A memorized/saved transaction template for quick re-use."""
+    __tablename__ = "memoized_transactions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    transaction_type: Mapped[MemoizedTransactionType] = mapped_column(nullable=False)
+    template_data: Mapped[str] = mapped_column(Text, nullable=False)  # JSON blob
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+# ── Tier 2 Transaction Types ──
+
+class SalesReceiptStatus(str, enum.Enum):
+    COMPLETED = "completed"
+    VOIDED = "voided"
+
+
+class SalesReceipt(Base, TimestampMixin):
+    """Cash egg sale without invoice — buyer pays immediately."""
+    __tablename__ = "sales_receipts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    receipt_number: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    customer_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    customer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("buyers.id"))
+    receipt_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    payment_method: Mapped[PaymentMethod] = mapped_column(default=PaymentMethod.CASH)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    deposit_to_account_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("accounts.id"))
+    memo: Mapped[Optional[str]] = mapped_column(Text)
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"))
+    status: Mapped[SalesReceiptStatus] = mapped_column(default=SalesReceiptStatus.COMPLETED)
+    journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("journal_entries.id"))
+
+    line_items: Mapped[List["SalesReceiptLineItem"]] = relationship(
+        "SalesReceiptLineItem", back_populates="sales_receipt", cascade="all, delete-orphan"
+    )
+
+
+class SalesReceiptLineItem(Base, TimestampMixin):
+    """Line items on a sales receipt."""
+    __tablename__ = "sales_receipt_line_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    sales_receipt_id: Mapped[str] = mapped_column(String(36), ForeignKey("sales_receipts.id"), nullable=False)
+    item_description: Mapped[str] = mapped_column(String(500), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(15, 4), default=Decimal("1"))
+    rate: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal("0"))
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"))
+
+    sales_receipt: Mapped["SalesReceipt"] = relationship("SalesReceipt", back_populates="line_items")
+
+
+class RefundReceiptStatus(str, enum.Enum):
+    COMPLETED = "completed"
+    VOIDED = "voided"
+
+
+class RefundReceipt(Base, TimestampMixin):
+    """Refund for returned/damaged eggs."""
+    __tablename__ = "refund_receipts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    refund_number: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    customer_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    customer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("buyers.id"))
+    refund_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    refund_method: Mapped[PaymentMethod] = mapped_column(default=PaymentMethod.CASH)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    refund_from_account_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("accounts.id"))
+    memo: Mapped[Optional[str]] = mapped_column(Text)
+    original_receipt_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("sales_receipts.id"))
+    status: Mapped[RefundReceiptStatus] = mapped_column(default=RefundReceiptStatus.COMPLETED)
+    journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("journal_entries.id"))
+
+    line_items: Mapped[List["RefundReceiptLineItem"]] = relationship(
+        "RefundReceiptLineItem", back_populates="refund_receipt", cascade="all, delete-orphan"
+    )
+
+
+class RefundReceiptLineItem(Base, TimestampMixin):
+    """Line items on a refund receipt."""
+    __tablename__ = "refund_receipt_line_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    refund_receipt_id: Mapped[str] = mapped_column(String(36), ForeignKey("refund_receipts.id"), nullable=False)
+    item_description: Mapped[str] = mapped_column(String(500), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(15, 4), default=Decimal("1"))
+    rate: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal("0"))
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+
+    refund_receipt: Mapped["RefundReceipt"] = relationship("RefundReceipt", back_populates="line_items")
+
+
+class CreditCardChargeStatus(str, enum.Enum):
+    PENDING = "pending"
+    CLEARED = "cleared"
+    VOIDED = "voided"
+
+
+class CreditCardCharge(Base, TimestampMixin):
+    """Farm credit card purchase."""
+    __tablename__ = "credit_card_charges"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    charge_number: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    credit_card_account_id: Mapped[str] = mapped_column(String(36), ForeignKey("accounts.id"), nullable=False)
+    vendor_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    vendor_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("vendors.id"))
+    charge_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    memo: Mapped[Optional[str]] = mapped_column(Text)
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"))
+    status: Mapped[CreditCardChargeStatus] = mapped_column(default=CreditCardChargeStatus.PENDING)
+    journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("journal_entries.id"))
+
+    expense_lines: Mapped[List["CreditCardChargeExpenseLine"]] = relationship(
+        "CreditCardChargeExpenseLine", back_populates="charge", cascade="all, delete-orphan"
+    )
+
+
+class CreditCardChargeExpenseLine(Base, TimestampMixin):
+    """Expense line on a credit card charge."""
+    __tablename__ = "credit_card_charge_expense_lines"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    charge_id: Mapped[str] = mapped_column(String(36), ForeignKey("credit_card_charges.id"), nullable=False)
+    account_id: Mapped[str] = mapped_column(String(36), ForeignKey("accounts.id"), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    memo: Mapped[Optional[str]] = mapped_column(String(500))
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"))
+
+    charge: Mapped["CreditCardCharge"] = relationship("CreditCardCharge", back_populates="expense_lines")
+
+
+class CreditCardCreditStatus(str, enum.Enum):
+    PENDING = "pending"
+    CLEARED = "cleared"
+    VOIDED = "voided"
+
+
+class CreditCardCredit(Base, TimestampMixin):
+    """Return/refund on a credit card."""
+    __tablename__ = "credit_card_credits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    credit_number: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    credit_card_account_id: Mapped[str] = mapped_column(String(36), ForeignKey("accounts.id"), nullable=False)
+    vendor_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    charge_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    memo: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[CreditCardCreditStatus] = mapped_column(default=CreditCardCreditStatus.PENDING)
+    journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("journal_entries.id"))
+
+
+class CustomerDepositModel(Base, TimestampMixin):
+    """Upfront egg buyer deposit."""
+    __tablename__ = "customer_deposits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    deposit_number: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    customer_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    customer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("buyers.id"))
+    deposit_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    deposit_to_account_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("accounts.id"))
+    payment_method: Mapped[PaymentMethod] = mapped_column(default=PaymentMethod.CHECK)
+    memo: Mapped[Optional[str]] = mapped_column(Text)
+    is_applied: Mapped[bool] = mapped_column(Boolean, default=False)
+    applied_to_invoice_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("customer_invoices.id"))
+    journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("journal_entries.id"))
+
+
+class FinanceChargeStatus(str, enum.Enum):
+    PENDING = "pending"
+    PAID = "paid"
+    WAIVED = "waived"
+
+
+class FinanceCharge(Base, TimestampMixin):
+    """Late payment fee on overdue invoices."""
+    __tablename__ = "finance_charges"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    charge_number: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    customer_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    invoice_id: Mapped[str] = mapped_column(String(36), ForeignKey("customer_invoices.id"), nullable=False)
+    charge_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    annual_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    grace_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[FinanceChargeStatus] = mapped_column(default=FinanceChargeStatus.PENDING)
+    journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("journal_entries.id"))
+
+
+class AdjustmentType(str, enum.Enum):
+    INCREASE = "increase"
+    DECREASE = "decrease"
+
+
+class InventoryAdjustmentStatus(str, enum.Enum):
+    COMPLETED = "completed"
+    VOIDED = "voided"
+
+
+class InventoryAdjustment(Base, TimestampMixin):
+    """Adjust egg inventory counts."""
+    __tablename__ = "inventory_adjustments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    adjustment_number: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    adjustment_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    adjustment_type: Mapped[AdjustmentType] = mapped_column(nullable=False)
+    account_id: Mapped[str] = mapped_column(String(36), ForeignKey("accounts.id"), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(15, 4), nullable=False)
+    unit_value: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    total_value: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"))
+    status: Mapped[InventoryAdjustmentStatus] = mapped_column(default=InventoryAdjustmentStatus.COMPLETED)
+    journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("journal_entries.id"))
+
+
+# ── Fixed Assets ──
+
+class AssetCategory(str, enum.Enum):
+    MACHINERY = "machinery"
+    VEHICLES = "vehicles"
+    BUILDINGS = "buildings"
+    EQUIPMENT = "equipment"
+    LAND_IMPROVEMENTS = "land_improvements"
+    OTHER = "other"
+
+
+class DepreciationMethodEnum(str, enum.Enum):
+    STRAIGHT_LINE = "straight_line"
+    DECLINING_BALANCE = "declining_balance"
+    MACRS_3 = "macrs_3"
+    MACRS_5 = "macrs_5"
+    MACRS_7 = "macrs_7"
+    MACRS_10 = "macrs_10"
+    MACRS_15 = "macrs_15"
+
+
+class DisposalMethod(str, enum.Enum):
+    SOLD = "sold"
+    SCRAPPED = "scrapped"
+    TRADED = "traded"
+
+
+class FixedAsset(Base, TimestampMixin):
+    """Farm fixed assets — tractors, egg graders, coolers, barns, etc."""
+    __tablename__ = "fixed_assets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    asset_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    category: Mapped[AssetCategory] = mapped_column(nullable=False)
+    acquisition_date: Mapped[str] = mapped_column(String(10), nullable=False)
+    acquisition_cost: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    salvage_value: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal("0.00"))
+    useful_life_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    depreciation_method: Mapped[DepreciationMethodEnum] = mapped_column(nullable=False)
+    location: Mapped[Optional[str]] = mapped_column(String(200))
+    flock_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("flocks.id"))
+    serial_number: Mapped[Optional[str]] = mapped_column(String(100))
+    vendor_name: Mapped[Optional[str]] = mapped_column(String(200))
+    is_disposed: Mapped[bool] = mapped_column(Boolean, default=False)
+    disposal_date: Mapped[Optional[str]] = mapped_column(String(10))
+    disposal_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(15, 2))
+    disposal_method: Mapped[Optional[DisposalMethod]] = mapped_column()
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    depreciation_records: Mapped[List["FixedAssetDepreciation"]] = relationship(
+        "FixedAssetDepreciation", back_populates="asset", order_by="FixedAssetDepreciation.period_date"
+    )
+
+
+class FixedAssetDepreciation(Base, TimestampMixin):
+    """Monthly depreciation record for a fixed asset."""
+    __tablename__ = "fixed_asset_depreciation"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    asset_id: Mapped[str] = mapped_column(String(36), ForeignKey("fixed_assets.id"), nullable=False)
+    period_date: Mapped[str] = mapped_column(String(7), nullable=False)  # YYYY-MM
+    depreciation_amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    accumulated_depreciation: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    book_value: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("journal_entries.id"))
+    is_posted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    asset: Mapped["FixedAsset"] = relationship("FixedAsset", back_populates="depreciation_records")

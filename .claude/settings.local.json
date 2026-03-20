@@ -9,7 +9,9 @@
       "Bash(python3:*)",
       "Bash(find:*)",
       "WebSearch",
-      "WebFetch(domain:fitsmallbusiness.com)"
+      "WebFetch(domain:fitsmallbusiness.com)",
+      "Bash(node:*)",
+      "Bash(npx vite:*)"
     ]
   }
 }

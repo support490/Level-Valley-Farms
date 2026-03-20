@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
-import { createInvoice, getInvoices, getAccounts, getBuyers } from '../../api/accounting'
+import { createInvoice, getInvoices, getAccounts, getBuyers, emailInvoice } from '../../api/accounting'
 import { getSettings, updateSettings } from '../../api/settings'
 import useToast from '../../hooks/useToast'
 import Toast from '../common/Toast'
 import AddressAutocomplete from '../common/AddressAutocomplete'
+import PrintView from './PrintView'
+import CopyTransactionButton from './CopyTransactionButton'
 
 const defaultTermsOptions = [
   { value: 'Due on Receipt', days: 0 },
@@ -225,8 +227,39 @@ export default function CreateInvoices({ onSaved }) {
     }
   }
 
-  const handleEmail = () => {
-    showToast('Email not configured — set up SMTP in Settings', 'warning')
+  const [showPrint, setShowPrint] = useState(false)
+  const [smtpConfigured, setSmtpConfigured] = useState(false)
+  const [emailing, setEmailing] = useState(false)
+
+  // Check SMTP config on settings load
+  useEffect(() => {
+    getSettings().then(res => {
+      const s = res.data || {}
+      if (s.smtp_host?.value && s.smtp_host.value.trim()) setSmtpConfigured(true)
+    }).catch(() => {})
+  }, [])
+
+  const handleEmail = async () => {
+    if (currentIndex < 0 || !invoices[currentIndex]?.id) {
+      showToast('Save the invoice first before emailing', 'warning'); return
+    }
+    if (!smtpConfigured) {
+      showToast('Email not configured — set up SMTP in Settings > Documents', 'warning'); return
+    }
+    setEmailing(true)
+    try {
+      await emailInvoice(invoices[currentIndex].id)
+      showToast('Invoice emailed successfully')
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'Error sending email', 'error')
+    } finally { setEmailing(false) }
+  }
+
+  const handlePrint = () => {
+    if (currentIndex < 0 || !invoices[currentIndex]?.id) {
+      window.print(); return
+    }
+    setShowPrint(true)
   }
 
   return (
@@ -252,8 +285,30 @@ export default function CreateInvoices({ onSaved }) {
           )}
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
-          <button className="glass-button-secondary text-sm" onClick={() => window.print()} style={{ padding: '2px 8px' }}>Print</button>
-          <button className="glass-button-secondary text-sm" style={{ padding: '2px 8px' }} onClick={handleEmail}>Email</button>
+          {currentIndex >= 0 && invoices[currentIndex]?.id && (
+            <CopyTransactionButton
+              transactionType="invoice"
+              transactionId={invoices[currentIndex].id}
+              onCopied={(newInvoice) => {
+                // Reload invoices and load the new copy
+                loadData().then(() => {
+                  if (newInvoice?.id) {
+                    // Navigate to the new copy by reloading
+                    setInvoices(prev => {
+                      const updated = [newInvoice, ...prev]
+                      setCurrentIndex(0)
+                      return updated
+                    })
+                    loadInvoiceAtIndex(0)
+                  }
+                })
+              }}
+            />
+          )}
+          <button className="glass-button-secondary text-sm" onClick={handlePrint} style={{ padding: '2px 8px' }}>Print</button>
+          <button className="glass-button-secondary text-sm" style={{ padding: '2px 8px' }} onClick={handleEmail} disabled={emailing}>
+            {emailing ? 'Sending...' : 'Email'}
+          </button>
         </div>
       </div>
 
@@ -444,7 +499,7 @@ export default function CreateInvoices({ onSaved }) {
       {/* Action Buttons */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, margin: '6px 8px 0' }}>
         <button type="button" className="glass-button-secondary text-sm" onClick={clearForm}>Revert</button>
-        <button type="button" className="glass-button-secondary text-sm" onClick={() => window.print()}>Print</button>
+        <button type="button" className="glass-button-secondary text-sm" onClick={handlePrint}>Print</button>
         <button type="button" className="glass-button-primary text-sm" disabled={submitting} onClick={() => handleSave(true)}>
           {submitting ? 'Saving...' : 'Save & New'}
         </button>
@@ -452,6 +507,10 @@ export default function CreateInvoices({ onSaved }) {
           {submitting ? 'Saving...' : 'Save & Close'}
         </button>
       </div>
+
+      {showPrint && currentIndex >= 0 && invoices[currentIndex]?.id && (
+        <PrintView type="invoice" id={invoices[currentIndex].id} onClose={() => setShowPrint(false)} />
+      )}
     </div>
   )
 }

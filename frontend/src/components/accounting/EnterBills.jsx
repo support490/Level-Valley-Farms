@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { createBill, getAccounts, getVendors } from '../../api/accounting'
+import { createBill, getAccounts, getVendors, suggestFlockForVendor, getActiveFlocks } from '../../api/accounting'
 import { getSettings, updateSettings } from '../../api/settings'
 import useToast from '../../hooks/useToast'
 import Toast from '../common/Toast'
@@ -40,12 +40,22 @@ export default function EnterBills({ onSaved }) {
   const [nextNumber, setNextNumber] = useState('')
   const { toast, showToast, hideToast } = useToast()
 
+  // Flock integration state
+  const [activeFlocks, setActiveFlocks] = useState([])
+  const [suggestedFlocks, setSuggestedFlocks] = useState([])
+  const [showSplitModal, setShowSplitModal] = useState(false)
+  const [splitLineIdx, setSplitLineIdx] = useState(null)
+  const [splitAllocations, setSplitAllocations] = useState([])
+
   useEffect(() => {
     const load = async () => {
       try {
-        const [acctRes, vendorRes, settingsRes] = await Promise.all([getAccounts(), getVendors(), getSettings()])
+        const [acctRes, vendorRes, settingsRes, flocksRes] = await Promise.all([
+          getAccounts(), getVendors(), getSettings(), getActiveFlocks()
+        ])
         setAccounts(acctRes.data || [])
         setVendors(vendorRes.data || [])
+        setActiveFlocks(flocksRes.data || [])
 
         const s = settingsRes.data || {}
         try {
@@ -67,6 +77,23 @@ export default function EnterBills({ onSaved }) {
     load()
   }, [])
 
+  // Auto-suggest flock when vendor changes
+  const handleVendorFlockSuggest = async (vendorId) => {
+    if (!vendorId) { setSuggestedFlocks([]); return }
+    try {
+      const res = await suggestFlockForVendor(vendorId)
+      const flocks = res.data?.flocks || res.data || []
+      setSuggestedFlocks(Array.isArray(flocks) ? flocks : [])
+    } catch { setSuggestedFlocks([]) }
+  }
+
+  const applyFlockSuggestion = (flockId) => {
+    setExpenseLines(prev => prev.map(line =>
+      !line.flock_id ? { ...line, flock_id: flockId } : line
+    ))
+    showToast(`Flock ${flockId} applied to empty flock fields`)
+  }
+
   const updateField = (field, value) => {
     setForm(prev => {
       const next = { ...prev, [field]: value }
@@ -77,7 +104,13 @@ export default function EnterBills({ onSaved }) {
       }
       if (field === 'vendor_name') {
         const match = vendors.find(v => v.name === value || v.vendor_name === value)
-        if (match) { next.vendor_id = match.id || ''; next.address = match.address || '' }
+        if (match) {
+          next.vendor_id = match.id || ''
+          next.address = match.address || ''
+          handleVendorFlockSuggest(match.id)
+        } else {
+          setSuggestedFlocks([])
+        }
       }
       return next
     })
@@ -102,6 +135,59 @@ export default function EnterBills({ onSaved }) {
   }
   const addItemLine = () => setItemLines(prev => [...prev, emptyItemLine()])
   const removeItemLine = (idx) => setItemLines(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)
+
+  // Split across flocks
+  const openSplitModal = (idx) => {
+    const lineAmount = parseFloat(expenseLines[idx]?.amount) || 0
+    if (lineAmount <= 0) { showToast('Enter an amount before splitting', 'warning'); return }
+    setSplitLineIdx(idx)
+    const checkedFlocks = activeFlocks.slice(0, 2).map(f => ({
+      flock_id: f.flock_number || f.id,
+      flock_label: `${f.flock_number || f.id}${f.grower_name ? ' — ' + f.grower_name : ''}`,
+      pct: 50,
+      amount: (lineAmount / 2).toFixed(2),
+    }))
+    setSplitAllocations(checkedFlocks.length > 0 ? checkedFlocks : [])
+    setShowSplitModal(true)
+  }
+
+  const updateSplitAlloc = (i, field, value) => {
+    const lineAmount = parseFloat(expenseLines[splitLineIdx]?.amount) || 0
+    setSplitAllocations(prev => prev.map((a, idx) => {
+      if (idx !== i) return a
+      const updated = { ...a, [field]: value }
+      if (field === 'pct') {
+        updated.amount = ((parseFloat(value) || 0) / 100 * lineAmount).toFixed(2)
+      } else if (field === 'amount') {
+        updated.pct = lineAmount > 0 ? ((parseFloat(value) || 0) / lineAmount * 100).toFixed(1) : 0
+      }
+      return updated
+    }))
+  }
+
+  const addSplitFlock = () => {
+    setSplitAllocations(prev => [...prev, { flock_id: '', flock_label: '', pct: 0, amount: '0.00' }])
+  }
+
+  const removeSplitFlock = (i) => {
+    setSplitAllocations(prev => prev.filter((_, idx) => idx !== i))
+  }
+
+  const applySplit = () => {
+    if (splitLineIdx === null) return
+    const origLine = expenseLines[splitLineIdx]
+    const newLines = splitAllocations
+      .filter(a => parseFloat(a.amount) > 0 && a.flock_id)
+      .map(a => ({ ...origLine, amount: a.amount, flock_id: a.flock_id }))
+    if (newLines.length === 0) { showToast('Add at least one flock with an amount', 'warning'); return }
+    setExpenseLines(prev => {
+      const copy = [...prev]
+      copy.splice(splitLineIdx, 1, ...newLines)
+      return copy
+    })
+    setShowSplitModal(false)
+    showToast(`Split into ${newLines.length} flock lines`)
+  }
 
   const expenseTotal = expenseLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0)
   const itemTotal = itemLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0)
@@ -135,13 +221,13 @@ export default function EnterBills({ onSaved }) {
       }
 
       if (onSaved) onSaved()
-      if (andNew) { setForm(initialForm()); setExpenseLines([emptyExpenseLine()]); setItemLines([emptyItemLine()]) }
+      if (andNew) { setForm(initialForm()); setExpenseLines([emptyExpenseLine()]); setItemLines([emptyItemLine()]); setSuggestedFlocks([]) }
     } catch (err) {
       showToast(err.response?.data?.detail || 'Error saving bill', 'error')
     } finally { setSubmitting(false) }
   }
 
-  const handleClear = () => { setForm(initialForm()); setExpenseLines([emptyExpenseLine()]); setItemLines([emptyItemLine()]) }
+  const handleClear = () => { setForm(initialForm()); setExpenseLines([emptyExpenseLine()]); setItemLines([emptyItemLine()]); setSuggestedFlocks([]) }
 
   return (
     <div>
@@ -167,6 +253,28 @@ export default function EnterBills({ onSaved }) {
               placeholder="Enter address..."
               style={{ width: '100%' }}
             />
+
+            {/* Suggested Flock Chips */}
+            {suggestedFlocks.length > 0 && (
+              <div style={{ marginTop: 8, padding: '6px 8px', borderRadius: 8, background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.2)' }}>
+                <span style={{ fontSize: '7pt', color: '#60a5fa', display: 'block', marginBottom: 4 }}>SUGGESTED FLOCKS FOR THIS VENDOR</span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {suggestedFlocks.map((f, i) => (
+                    <button key={i} type="button"
+                      onClick={() => applyFlockSuggestion(f.flock_number || f.flock_id || f.id)}
+                      style={{
+                        fontSize: '8pt', padding: '3px 10px', borderRadius: 12,
+                        background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.3)',
+                        color: '#60a5fa', cursor: 'pointer',
+                      }}>
+                      Flock {f.flock_number || f.flock_id || f.id}
+                      {f.grower_name ? ` — ${f.grower_name}` : ''}
+                      {f.barn ? ` (${f.barn})` : ''}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right: Date / Ref / Amount Due / Terms / Due Date / Disc */}
@@ -226,12 +334,13 @@ export default function EnterBills({ onSaved }) {
             <div>
               <table className="glass-table w-full">
                 <thead><tr>
-                  <th style={{ width: '30%' }}>Account</th>
-                  <th style={{ width: '18%' }}>Amount</th>
-                  <th style={{ width: '25%' }}>Memo</th>
-                  <th style={{ width: '12%' }}>Flock</th>
-                  <th style={{ width: '8%' }}>Billable?</th>
-                  <th style={{ width: '7%' }}></th>
+                  <th style={{ width: '26%' }}>Account</th>
+                  <th style={{ width: '15%' }}>Amount</th>
+                  <th style={{ width: '20%' }}>Memo</th>
+                  <th style={{ width: '14%' }}>Flock</th>
+                  <th style={{ width: '6%' }}>Billable?</th>
+                  <th style={{ width: '10%' }}>Split</th>
+                  <th style={{ width: '5%' }}></th>
                 </tr></thead>
                 <tbody>
                   {expenseLines.map((line, idx) => (
@@ -246,8 +355,25 @@ export default function EnterBills({ onSaved }) {
                       <td><input className="glass-input text-sm" type="number" step="0.01" min="0" value={line.amount}
                         onChange={e => updateExpenseLine(idx, 'amount', e.target.value)} style={{ textAlign: 'right' }} /></td>
                       <td><input className="glass-input text-sm" value={line.memo} onChange={e => updateExpenseLine(idx, 'memo', e.target.value)} /></td>
-                      <td><input className="glass-input text-sm" value={line.flock_id} onChange={e => updateExpenseLine(idx, 'flock_id', e.target.value)} placeholder="Flock #" /></td>
+                      <td>
+                        <select className="glass-input text-sm" value={line.flock_id}
+                          onChange={e => updateExpenseLine(idx, 'flock_id', e.target.value)}>
+                          <option value="">-- Flock --</option>
+                          {activeFlocks.map(f => (
+                            <option key={f.id || f.flock_number} value={f.flock_number || f.id}>
+                              {f.flock_number || f.id}{f.grower_name ? ` — ${f.grower_name}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
                       <td style={{ textAlign: 'center' }}><input type="checkbox" /></td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button type="button" onClick={() => openSplitModal(idx)}
+                          className="text-lvf-accent hover:text-lvf-text transition"
+                          style={{ fontSize: '7pt', border: 'none', background: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                          Split Flocks
+                        </button>
+                      </td>
                       <td style={{ textAlign: 'center' }}>
                         <button type="button" onClick={() => removeExpenseLine(idx)}
                           style={{ color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer', fontSize: '10pt' }}>x</button>
@@ -260,7 +386,7 @@ export default function EnterBills({ onSaved }) {
                     <button type="button" onClick={addExpenseLine} className="glass-button-secondary text-sm">+ Add Line</button>
                   </td>
                   <td style={{ border: 'none', textAlign: 'right', fontWeight: 700, paddingTop: 4 }}>${expenseTotal.toFixed(2)}</td>
-                  <td colSpan={4} style={{ border: 'none' }}></td>
+                  <td colSpan={5} style={{ border: 'none' }}></td>
                 </tr></tfoot>
               </table>
             </div>
@@ -320,6 +446,89 @@ export default function EnterBills({ onSaved }) {
           </button>
         </div>
       </div>
+
+      {/* ── Split Across Flocks Modal ── */}
+      {showSplitModal && splitLineIdx !== null && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowSplitModal(false)}>
+          <div className="glass-card" style={{ minWidth: 500, maxWidth: 600, padding: 20 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: '11pt', fontWeight: 700, marginBottom: 10, color: '#60a5fa' }}>
+              Split Expense Across Flocks
+            </h3>
+            <p style={{ fontSize: '8pt', color: '#999', marginBottom: 10 }}>
+              Original amount: <strong style={{ color: '#e2e8f0' }}>${parseFloat(expenseLines[splitLineIdx]?.amount || 0).toFixed(2)}</strong>
+              {' '}&mdash; Account: {expenseAccountOptions.find(a => a.id === expenseLines[splitLineIdx]?.account_id)?.name || 'Not set'}
+            </p>
+
+            <table className="glass-table w-full" style={{ marginBottom: 10 }}>
+              <thead><tr>
+                <th style={{ width: '35%' }}>Flock</th>
+                <th style={{ width: '20%' }}>%</th>
+                <th style={{ width: '25%' }}>Amount</th>
+                <th style={{ width: '10%' }}></th>
+              </tr></thead>
+              <tbody>
+                {splitAllocations.map((alloc, i) => (
+                  <tr key={i}>
+                    <td>
+                      <select className="glass-input text-sm" value={alloc.flock_id}
+                        onChange={e => {
+                          const f = activeFlocks.find(fl => (fl.flock_number || fl.id) === e.target.value)
+                          setSplitAllocations(prev => prev.map((a, idx) => idx === i
+                            ? { ...a, flock_id: e.target.value, flock_label: f ? `${f.flock_number || f.id} — ${f.grower_name || ''}` : e.target.value }
+                            : a
+                          ))
+                        }}>
+                        <option value="">-- Select Flock --</option>
+                        {activeFlocks.map(f => (
+                          <option key={f.id || f.flock_number} value={f.flock_number || f.id}>
+                            {f.flock_number || f.id}{f.grower_name ? ` — ${f.grower_name}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <input className="glass-input text-sm" type="number" step="0.1" min="0" max="100"
+                        value={alloc.pct} onChange={e => updateSplitAlloc(i, 'pct', e.target.value)}
+                        style={{ textAlign: 'right' }} />
+                    </td>
+                    <td>
+                      <input className="glass-input text-sm" type="number" step="0.01" min="0"
+                        value={alloc.amount} onChange={e => updateSplitAlloc(i, 'amount', e.target.value)}
+                        style={{ textAlign: 'right' }} />
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <button type="button" onClick={() => removeSplitFlock(i)}
+                        style={{ color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer' }}>x</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {(() => {
+              const origAmount = parseFloat(expenseLines[splitLineIdx]?.amount) || 0
+              const allocated = splitAllocations.reduce((s, a) => s + (parseFloat(a.amount) || 0), 0)
+              const remaining = origAmount - allocated
+              return remaining !== 0 ? (
+                <p style={{ fontSize: '8pt', color: remaining > 0 ? '#fbbf24' : '#f87171', marginBottom: 8 }}>
+                  {remaining > 0 ? `$${remaining.toFixed(2)} unallocated` : `$${Math.abs(remaining).toFixed(2)} over-allocated`}
+                </p>
+              ) : (
+                <p style={{ fontSize: '8pt', color: '#34d399', marginBottom: 8 }}>Fully allocated</p>
+              )
+            })()}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <button type="button" onClick={addSplitFlock} className="glass-button-secondary text-sm">+ Add Flock</button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button type="button" onClick={() => setShowSplitModal(false)} className="glass-button-secondary text-sm">Cancel</button>
+                <button type="button" onClick={applySplit} className="glass-button-primary text-sm">Apply Split</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -9,6 +9,7 @@ import {
   getMedications, createMedication, updateMedication, administerMedication, getMedicationAdmins,
   getPurchaseOrders, createPurchaseOrder, updatePOStatus,
 } from '../api/feed'
+import { createBillFromFeedDelivery } from '../api/accounting'
 import { getFlocks } from '../api/flocks'
 import { getBarns } from '../api/barns'
 import SearchSelect from '../components/common/SearchSelect'
@@ -307,7 +308,7 @@ export default function Feed() {
       {tab === 'tickets' && (
         <div className="glass-card overflow-hidden">
           <table className="w-full glass-table">
-            <thead><tr><th>Ticket #</th><th>Date</th><th>Barn</th><th>Flock</th><th>Vendor</th><th>Type</th><th className="text-right">Tons</th><th className="text-right">$/Ton</th><th className="text-right">Total</th></tr></thead>
+            <thead><tr><th>Ticket #</th><th>Date</th><th>Barn</th><th>Flock</th><th>Vendor</th><th>Type</th><th className="text-right">Tons</th><th className="text-right">$/Ton</th><th className="text-right">Total</th><th></th></tr></thead>
             <tbody>
               {deliveries.map(d => (
                 <tr key={d.id}>
@@ -320,6 +321,20 @@ export default function Feed() {
                   <td className="text-right font-mono font-medium">{d.tons.toFixed(1)}</td>
                   <td className="text-right font-mono">{d.cost_per_ton ? `$${d.cost_per_ton.toFixed(2)}` : '—'}</td>
                   <td className="text-right font-mono font-medium text-lvf-success">{d.total_cost ? `$${d.total_cost.toFixed(2)}` : '—'}</td>
+                  <td>
+                    {d.total_cost > 0 && !d.bill_id && (
+                      <button className="glass-button-primary text-xs" style={{ padding: '2px 8px', fontSize: '7pt' }}
+                        onClick={async () => {
+                          try {
+                            await createBillFromFeedDelivery(d.id)
+                            showToast(`Bill created for ticket ${d.ticket_number}`)
+                            load()
+                          } catch (err) { showToast(err.response?.data?.detail || 'Error creating bill', 'error') }
+                        }}>
+                        Create Bill
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
               {deliveries.length === 0 && <tr><td colSpan={9} className="text-center py-8 text-lvf-muted">No feed tickets yet.</td></tr>}

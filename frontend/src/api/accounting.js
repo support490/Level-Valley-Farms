@@ -147,9 +147,104 @@ export const createCreditMemo = (data) => api.post('/accounting/credit-memos', d
 export const applyCreditMemo = (id, invoiceId) => api.post(`/accounting/credit-memos/${id}/apply/${invoiceId}`)
 export const voidCreditMemo = (id) => api.post(`/accounting/credit-memos/${id}/void`)
 
+// Vendor Credits
+export const getVendorCredits = (params = {}) => api.get('/accounting/vendor-credits', { params })
+export const createVendorCredit = (data) => api.post('/accounting/vendor-credits', data)
+export const applyVendorCredit = (creditId, billId, data) => api.post(`/accounting/vendor-credits/${creditId}/apply/${billId}`, data)
+export const voidVendorCredit = (id) => api.post(`/accounting/vendor-credits/${id}/void`)
+
 // Bank Reconciliation
 export const startReconciliation = (data) => api.post('/accounting/reconciliation/start', data)
 export const getReconciliation = (id) => api.get(`/accounting/reconciliation/${id}`)
 export const toggleReconciliationItem = (id, itemId) => api.put(`/accounting/reconciliation/${id}/toggle/${itemId}`)
 export const finishReconciliation = (id) => api.post(`/accounting/reconciliation/${id}/finish`)
 export const getReconciliationHistory = (bankAccountId) => api.get(`/accounting/reconciliation/history/${bankAccountId}`)
+
+// Item Receipts
+export const getItemReceipts = (params = {}) => api.get('/accounting/item-receipts', { params })
+export const createItemReceipt = (data) => api.post('/accounting/item-receipts', data)
+export const convertReceiptToBill = (receiptId, data = {}) => api.post(`/accounting/item-receipts/${receiptId}/convert-to-bill`, data)
+
+// Flock Closeout
+export const executeFlockCloseout = (flockId, data) => api.post(`/accounting/flock-closeout/${flockId}`, data)
+
+// Flock-Accounting Integration
+export const suggestFlockForVendor = (vendorId) => api.get(`/accounting/suggest-flock?vendor_id=${vendorId}`)
+export const getActiveFlocks = () => api.get('/accounting/active-flocks')
+export const createBillFromFeedDelivery = (deliveryId) => api.post(`/accounting/bills/from-feed-delivery/${deliveryId}`)
+export const getFlockBudget = (flockId) => api.get(`/accounting/flock-budget/${flockId}`)
+export const createFlockBudget = (flockId, data) => api.post(`/accounting/flock-budget/${flockId}`, data)
+export const getFlockBudgetVariance = (flockId) => api.get(`/accounting/flock-budget-variance/${flockId}`)
+export const allocateExpense = (data) => api.post('/accounting/allocate-expense', data)
+export const getGrowerSettlement = (flockId) => api.get(`/accounting/grower-settlement/${flockId}`)
+export const executeGrowerSettlement = (flockId) => api.post(`/accounting/grower-settlement/${flockId}`)
+
+// Print Views & Email
+export const getInvoicePrintView = (invoiceId) => api.get(`/accounting/invoices/${invoiceId}/print-view`)
+export const getEstimatePrintView = (estimateId) => api.get(`/accounting/estimates/${estimateId}/print-view`)
+export const getCheckPrintView = (checkId) => api.get(`/accounting/checks/${checkId}/print-view`)
+export const emailInvoice = (invoiceId) => api.post(`/accounting/invoices/${invoiceId}/email`)
+
+// ── Tier 2: Sales Receipts ──
+export const getSalesReceipts = (params = {}) => api.get('/accounting/sales-receipts', { params })
+export const createSalesReceipt = (data) => api.post('/accounting/sales-receipts', data)
+export const voidSalesReceipt = (id) => api.post(`/accounting/sales-receipts/${id}/void`)
+
+// ── Tier 2: Refund Receipts ──
+export const getRefundReceipts = (params = {}) => api.get('/accounting/refund-receipts', { params })
+export const createRefundReceipt = (data) => api.post('/accounting/refund-receipts', data)
+export const voidRefundReceipt = (id) => api.post(`/accounting/refund-receipts/${id}/void`)
+
+// ── Tier 2: Credit Card Charges ──
+export const getCCCharges = (params = {}) => api.get('/accounting/cc-charges', { params })
+export const createCCCharge = (data) => api.post('/accounting/cc-charges', data)
+export const voidCCCharge = (id) => api.post(`/accounting/cc-charges/${id}/void`)
+
+// ── Tier 2: Credit Card Credits ──
+export const getCCCredits = (params = {}) => api.get('/accounting/cc-credits', { params })
+export const createCCCredit = (data) => api.post('/accounting/cc-credits', data)
+
+// ── Tier 2: Customer Deposits ──
+export const getCustomerDeposits = (params = {}) => api.get('/accounting/customer-deposits', { params })
+export const createCustomerDeposit = (data) => api.post('/accounting/customer-deposits', data)
+export const applyCustomerDeposit = (id, invoiceId) => api.post(`/accounting/customer-deposits/${id}/apply/${invoiceId}`)
+
+// ── Tier 2: Finance Charges ──
+export const getFinanceCharges = (params = {}) => api.get('/accounting/finance-charges', { params })
+export const assessFinanceCharges = (rate, graceDays) => api.post(`/accounting/finance-charges/assess?rate=${rate}&grace_days=${graceDays}`)
+export const waiveFinanceCharge = (id) => api.post(`/accounting/finance-charges/${id}/waive`)
+
+// ── Tier 2: Inventory Adjustments ──
+export const getInventoryAdjustments = (params = {}) => api.get('/accounting/inventory-adjustments', { params })
+export const createInventoryAdjustment = (data) => api.post('/accounting/inventory-adjustments', data)
+export const voidInventoryAdjustment = (id) => api.post(`/accounting/inventory-adjustments/${id}/void`)
+
+// ── Tier 2: Recurring Transactions ──
+export const getRecurringTransactions = (params = {}) => api.get('/accounting/recurring-transactions', { params })
+export const createRecurringTransaction = (data) => api.post('/accounting/recurring-transactions', data)
+export const updateRecurringTransaction = (id, data) => api.put(`/accounting/recurring-transactions/${id}`, data)
+export const deleteRecurringTransaction = (id) => api.delete(`/accounting/recurring-transactions/${id}`)
+export const generateRecurringTransactions = () => api.post('/accounting/recurring-transactions/generate')
+
+// ── Tier 2: Memorized Transactions ──
+export const getMemoizedTransactions = (params = {}) => api.get('/accounting/memorized-transactions', { params })
+export const createMemoizedTransaction = (data) => api.post('/accounting/memorized-transactions', data)
+export const deleteMemoizedTransaction = (id) => api.delete(`/accounting/memorized-transactions/${id}`)
+export const useMemoizedTransaction = (id) => api.post(`/accounting/memorized-transactions/${id}/use`)
+
+// ── Tier 2: Batch Operations ──
+export const batchCreateInvoices = (data) => api.post('/accounting/batch/invoices', data)
+export const batchVoid = (data) => api.post('/accounting/batch/void', data)
+
+// ── Tier 2: Copy Transaction ──
+export const copyTransaction = (type, id) => api.post(`/accounting/copy/${type}/${id}`)
+
+// ── Fixed Assets ──
+export const getFixedAssets = (params = {}) => api.get('/accounting/fixed-assets', { params })
+export const createFixedAsset = (data) => api.post('/accounting/fixed-assets', data)
+export const getFixedAsset = (id) => api.get(`/accounting/fixed-assets/${id}`)
+export const updateFixedAsset = (id, data) => api.put(`/accounting/fixed-assets/${id}`, data)
+export const disposeFixedAsset = (id, data) => api.post(`/accounting/fixed-assets/${id}/dispose`, data)
+export const depreciateFixedAsset = (id) => api.post(`/accounting/fixed-assets/${id}/depreciate`)
+export const depreciateAllFixedAssets = () => api.post('/accounting/fixed-assets/depreciate-all')
+export const getFixedAssetsSummary = () => api.get('/accounting/fixed-assets/summary')
